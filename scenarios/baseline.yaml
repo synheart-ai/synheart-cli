@@ -1,0 +1,54 @@
+name: baseline
+description: Normal day idle with minor variance
+duration: unlimited
+default_rate: 50hz
+
+signals:
+  ppg.hr_bpm:
+    baseline: 72
+    noise: 3
+    rate: 1hz
+    unit: bpm
+
+  ppg.hrv_rmssd_ms:
+    baseline: 50
+    noise: 8
+    rate: 0.2hz
+    unit: ms
+
+  accel.xyz_mps2:
+    baseline: [0, 0, 9.81]
+    noise: 0.05
+    rate: 50hz
+    unit: m/s²
+
+  gyro.xyz_rps:
+    baseline: [0, 0, 0]
+    noise: 0.02
+    rate: 50hz
+    unit: rad/s
+
+  temp.skin_c:
+    baseline: 33.0
+    noise: 0.1
+    rate: 0.1hz
+    unit: °C
+
+  eda.us:
+    baseline: 2.0
+    noise: 0.2
+    rate: 0.5hz
+    unit: μS
+
+  screen.state:
+    rate: 0.1hz
+
+  app.activity:
+    rate: 0.2hz
+
+  motion.activity:
+    rate: 0.5hz
+
+phases:
+  - name: idle
+    duration: unlimited

@@ -1,0 +1,75 @@
+name: focus_session
+description: Reduced motion, stable HR, screen on patterns
+duration: 30m
+default_rate: 50hz
+
+signals:
+  ppg.hr_bpm:
+    baseline: 72
+    noise: 3
+    rate: 1hz
+    unit: bpm
+
+  ppg.hrv_rmssd_ms:
+    baseline: 50
+    noise: 8
+    rate: 0.2hz
+    unit: ms
+
+  accel.xyz_mps2:
+    baseline: [0, 0, 9.81]
+    noise: 0.05
+    rate: 50hz
+    unit: m/s²
+
+  gyro.xyz_rps:
+    baseline: [0, 0, 0]
+    noise: 0.02
+    rate: 50hz
+    unit: rad/s
+
+  temp.skin_c:
+    baseline: 33.0
+    noise: 0.1
+    rate: 0.1hz
+    unit: °C
+
+  eda.us:
+    baseline: 2.0
+    noise: 0.2
+    rate: 0.5hz
+    unit: μS
+
+  screen.state:
+    rate: 0.1hz
+
+  app.activity:
+    rate: 0.2hz
+
+  motion.activity:
+    rate: 0.5hz
+
+phases:
+  - name: settle
+    duration: 2m
+
+  - name: focus
+    duration: 25m
+    overrides:
+      accel.xyz_mps2:
+        noise: 0.01
+      ppg.hr_bpm:
+        baseline: 68
+        noise: 2
+      screen.state:
+        value: "on"
+      app.activity:
+        value: "foreground"
+      motion.activity:
+        value: "still"
+
+  - name: break
+    duration: 3m
+    overrides:
+      screen.state:
+        value: "off"

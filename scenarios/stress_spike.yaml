@@ -1,0 +1,74 @@
+name: stress_spike
+description: Sudden HR increase, HRV drop, EDA spike then recovery
+duration: 8m
+default_rate: 50hz
+
+signals:
+  ppg.hr_bpm:
+    baseline: 72
+    noise: 3
+    rate: 1hz
+    unit: bpm
+
+  ppg.hrv_rmssd_ms:
+    baseline: 50
+    noise: 8
+    rate: 0.2hz
+    unit: ms
+
+  accel.xyz_mps2:
+    baseline: [0, 0, 9.81]
+    noise: 0.05
+    rate: 50hz
+    unit: m/s²
+
+  gyro.xyz_rps:
+    baseline: [0, 0, 0]
+    noise: 0.02
+    rate: 50hz
+    unit: rad/s
+
+  temp.skin_c:
+    baseline: 33.0
+    noise: 0.1
+    rate: 0.1hz
+    unit: °C
+
+  eda.us:
+    baseline: 2.0
+    noise: 0.2
+    rate: 0.5hz
+    unit: μS
+
+  screen.state:
+    rate: 0.1hz
+
+  app.activity:
+    rate: 0.2hz
+
+  motion.activity:
+    rate: 0.5hz
+
+phases:
+  - name: baseline
+    duration: 2m
+
+  - name: spike
+    duration: 30s
+    overrides:
+      ppg.hr_bpm:
+        add: 35
+      ppg.hrv_rmssd_ms:
+        multiply: 0.6
+      eda.us:
+        add: 2.0
+
+  - name: recovery
+    duration: 5m30s
+    overrides:
+      ppg.hr_bpm:
+        add: 15
+      ppg.hrv_rmssd_ms:
+        multiply: 0.8
+      eda.us:
+        add: 1.0

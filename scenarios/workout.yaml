@@ -1,0 +1,96 @@
+name: workout
+description: Cardio workout with warmup, run, cooldown (HR up, HRV down, EDA up)
+duration: 30m
+default_rate: 50hz
+
+signals:
+  ppg.hr_bpm:
+    baseline: 72
+    noise: 3
+    rate: 1hz
+    unit: bpm
+
+  ppg.hrv_rmssd_ms:
+    baseline: 50
+    noise: 8
+    rate: 0.2hz
+    unit: ms
+
+  accel.xyz_mps2:
+    baseline: [0, 0, 9.81]
+    noise: 0.05
+    rate: 50hz
+    unit: m/s²
+
+  gyro.xyz_rps:
+    baseline: [0, 0, 0]
+    noise: 0.02
+    rate: 50hz
+    unit: rad/s
+
+  temp.skin_c:
+    baseline: 33.0
+    noise: 0.1
+    rate: 0.1hz
+    unit: °C
+
+  eda.us:
+    baseline: 2.0
+    noise: 0.2
+    rate: 0.5hz
+    unit: μS
+
+  screen.state:
+    rate: 0.1hz
+
+  app.activity:
+    rate: 0.2hz
+
+  motion.activity:
+    rate: 0.5hz
+
+phases:
+  - name: warmup
+    duration: 5m
+    overrides:
+      motion.activity:
+        value: "walk"
+      ppg.hr_bpm:
+        add: 18
+      ppg.hrv_rmssd_ms:
+        multiply: 0.85
+      eda.us:
+        add: 0.8
+      accel.xyz_mps2:
+        noise: 0.12
+
+  - name: run
+    duration: 20m
+    overrides:
+      motion.activity:
+        value: "run"
+      ppg.hr_bpm:
+        add: 50
+      ppg.hrv_rmssd_ms:
+        multiply: 0.65
+      eda.us:
+        add: 2.2
+      temp.skin_c:
+        baseline: 34.2
+      accel.xyz_mps2:
+        noise: 0.22
+
+  - name: cooldown
+    duration: 5m
+    overrides:
+      motion.activity:
+        value: "walk"
+      ppg.hr_bpm:
+        add: 22
+      ppg.hrv_rmssd_ms:
+        multiply: 0.8
+      eda.us:
+        add: 1.0
+      accel.xyz_mps2:
+        noise: 0.14
+

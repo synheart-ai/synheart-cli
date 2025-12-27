@@ -1,0 +1,31 @@
+# --- Go build artifacts ---
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+*.test
+*.out
+*.coverprofile
+
+# Binaries / build output
+bin/
+
+# --- Go workspace files ---
+go.work
+go.work.sum
+
+# --- IDEs / editors ---
+.idea/
+*.iml
+.vscode/
+
+# --- OS junk ---
+.DS_Store
+Thumbs.db
+
+# --- Logs / temp ---
+*.log
+tmp/
+
