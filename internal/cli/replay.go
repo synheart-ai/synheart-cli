@@ -10,17 +10,19 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/synheart/synheart-cli/internal/encoding"
 	"github.com/synheart/synheart-cli/internal/models"
 	"github.com/synheart/synheart-cli/internal/recorder"
 	"github.com/synheart/synheart-cli/internal/transport"
 )
 
 var (
-	replayIn    string
-	replaySpeed float64
-	replayLoop  bool
-	replayHost  string
-	replayPort  int
+	replayIn     string
+	replaySpeed  float64
+	replayLoop   bool
+	replayHost   string
+	replayPort   int
+	replayFormat string
 )
 
 var replayCmd = &cobra.Command{
@@ -40,6 +42,7 @@ func init() {
 	replayCmd.Flags().BoolVar(&replayLoop, "loop", false, "Loop playback continuously")
 	replayCmd.Flags().StringVar(&replayHost, "host", "127.0.0.1", "Host to bind to")
 	replayCmd.Flags().IntVar(&replayPort, "port", 8787, "Port to listen on")
+	replayCmd.Flags().StringVar(&replayFormat, "format", "json", "Output format: json|protobuf")
 	replayCmd.MarkFlagRequired("in")
 }
 
@@ -61,8 +64,9 @@ func runReplay(cmd *cobra.Command, args []string) error {
 	// Create event channel
 	events := make(chan models.Event, 100)
 
-	// Create WebSocket server
-	wsServer := transport.NewWebSocketServer(replayHost, replayPort)
+	// Create encoder and WebSocket server
+	enc := encoding.NewEncoder(encoding.Format(replayFormat))
+	wsServer := transport.NewWebSocketServer(replayHost, replayPort, enc)
 
 	// Setup context with cancellation
 	ctx, cancel := context.WithCancel(context.Background())
@@ -94,6 +98,7 @@ func runReplay(cmd *cobra.Command, args []string) error {
 	fmt.Printf("Scenario:     %s\n", firstEvent.Session.Scenario)
 	fmt.Printf("Speed:        %.1fx\n", replaySpeed)
 	fmt.Printf("Loop:         %v\n", replayLoop)
+	fmt.Printf("Format:       %s\n", replayFormat)
 	fmt.Printf("WebSocket:    %s\n\n", wsServer.GetAddress())
 
 	// Start broadcasting
