@@ -124,14 +124,16 @@ func runStart(cmd *cobra.Command, args []string) error {
 	fmt.Printf("Seed:         %d\n", startSeed)
 	fmt.Printf("Run ID:       %s\n\n", gen.GetRunID())
 
-	// Start broadcasting
+	// dispatch events to both websocket and recorder
+	dispatcher := transport.NewDispatcher(events, 100)
+
+	wsEvents := dispatcher.Subscribe()
 	go func() {
-		if err := wsServer.BroadcastFromChannel(ctx, events); err != nil && err != context.Canceled {
+		if err := wsServer.BroadcastFromChannel(ctx, wsEvents); err != nil && err != context.Canceled {
 			log.Printf("Broadcast error: %v", err)
 		}
 	}()
 
-	// Start recording if requested
 	var rec *recorder.Recorder
 	if startOut != "" {
 		rec, err = recorder.NewRecorder(startOut)
@@ -140,22 +142,17 @@ func runStart(cmd *cobra.Command, args []string) error {
 		}
 		defer rec.Close()
 
+		recEvents := dispatcher.Subscribe()
 		go func() {
-			eventsCopy := make(chan models.Event, 100)
-			go func() {
-				for event := range events {
-					eventsCopy <- event
-				}
-				close(eventsCopy)
-			}()
-
-			if err := rec.RecordFromChannel(ctx, eventsCopy); err != nil && err != context.Canceled {
+			if err := rec.RecordFromChannel(ctx, recEvents); err != nil && err != context.Canceled {
 				log.Printf("Recording error: %v", err)
 			}
 		}()
 
 		fmt.Printf("Recording:    %s\n\n", startOut)
 	}
+
+	go dispatcher.Run(ctx)
 
 	fmt.Println("Press Ctrl+C to stop")
 	fmt.Println("\nGenerating events...")
