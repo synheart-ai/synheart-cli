@@ -79,7 +79,6 @@ func (s *SSEServer) handleSSE(w http.ResponseWriter, r *http.Request) {
 	for {
 		select {
 		case <-r.Context().Done():
-			log.Printf("SSE client disconnected (total: %d)", s.GetClientCount()-1)
 			return
 		case data := <-clientChan:
 			fmt.Fprintf(w, "data: %s\n\n", data)
@@ -96,9 +95,12 @@ func (s *SSEServer) addClient(ch chan []byte) {
 
 func (s *SSEServer) removeClient(ch chan []byte) {
 	s.mu.Lock()
-	delete(s.clients, ch)
-	close(ch)
-	s.mu.Unlock()
+	defer s.mu.Unlock()
+	if _, exists := s.clients[ch]; exists {
+		delete(s.clients, ch)
+		close(ch)
+		log.Printf("SSE client disconnected (total: %d)", len(s.clients))
+	}
 }
 
 // Broadcast sends an event to all connected clients
