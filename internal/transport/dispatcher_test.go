@@ -343,7 +343,7 @@ func TestDispatcher_GetDroppedCount(t *testing.T) {
 		for range sub {
 		}
 	}()
-	
+
 	// Wait a bit for draining, then cancel to stop dispatcher
 	time.Sleep(10 * time.Millisecond)
 	cancel()
