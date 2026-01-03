@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/synheart/synheart-cli/internal/encoding"
 	"github.com/synheart/synheart-cli/internal/generator"
 	"github.com/synheart/synheart-cli/internal/models"
 	"github.com/synheart/synheart-cli/internal/recorder"
@@ -26,6 +27,7 @@ var (
 	startRate     string
 	startSeed     int64
 	startOut      string
+	startFormat   string
 )
 
 var startCmd = &cobra.Command{
@@ -48,6 +50,7 @@ func init() {
 	startCmd.Flags().StringVar(&startRate, "rate", "50hz", "Global tick rate")
 	startCmd.Flags().Int64Var(&startSeed, "seed", time.Now().UnixNano(), "Random seed for deterministic output")
 	startCmd.Flags().StringVar(&startOut, "out", "", "Record events to file")
+	startCmd.Flags().StringVar(&startFormat, "format", "json", "Output format: json|protobuf")
 }
 
 func runStart(cmd *cobra.Command, args []string) error {
@@ -90,8 +93,11 @@ func runStart(cmd *cobra.Command, args []string) error {
 	// Create event channel
 	events := make(chan models.Event, 100)
 
+	// Create encoder for the requested format
+	enc := encoding.NewEncoder(encoding.Format(startFormat))
+
 	// Create WebSocket server
-	wsServer := transport.NewWebSocketServer(startHost, startPort)
+	wsServer := transport.NewWebSocketServer(startHost, startPort, enc)
 
 	// Setup context with cancellation
 	ctx, cancel := context.WithCancel(context.Background())
@@ -121,6 +127,7 @@ func runStart(cmd *cobra.Command, args []string) error {
 	fmt.Printf("Scenario:     %s\n", scen.Name)
 	fmt.Printf("Description:  %s\n", scen.Description)
 	fmt.Printf("WebSocket:    %s\n", wsServer.GetAddress())
+	fmt.Printf("Format:       %s\n", startFormat)
 	fmt.Printf("Seed:         %d\n", startSeed)
 	fmt.Printf("Run ID:       %s\n\n", gen.GetRunID())
 

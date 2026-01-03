@@ -1,4 +1,4 @@
-.PHONY: build install test clean
+.PHONY: build install test clean proto
 
 VERSION ?= 0.0.1
 COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo dev)
@@ -56,3 +56,7 @@ test:
 
 clean:
 	rm -rf bin/
+
+proto:
+	mkdir -p internal/proto/hsi
+	protoc --go_out=internal/proto/hsi --go_opt=paths=source_relative proto/hsi.proto
