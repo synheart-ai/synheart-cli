@@ -110,36 +110,52 @@ func runRecord(cmd *cobra.Command, args []string) error {
 	fmt.Printf("Run ID:     %s\n\n", gen.GetRunID())
 
 	// Start recording
+	recordingDone := make(chan error, 1)
 	go func() {
-		if err := rec.RecordFromChannel(ctx, events); err != nil && err != context.Canceled {
-			log.Printf("Recording error: %v", err)
-		}
+		recordingDone <- rec.RecordFromChannel(ctx, events)
 	}()
 
 	fmt.Println("Press Ctrl+C to stop early")
 	fmt.Println("\nRecording events...")
 
-	// Start generating
-	ticker := time.NewTicker(tickRate)
-	defer ticker.Stop()
-
-	eventCount := 0
+	// Start progress display goroutine
+	progressTicker := time.NewTicker(500 * time.Millisecond)
+	defer progressTicker.Stop()
 	go func() {
-		for range events {
-			eventCount++
-			if eventCount%1000 == 0 {
-				fmt.Printf("\rRecorded %d events...", eventCount)
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-progressTicker.C:
+				count := rec.GetCount()
+				if count > 0 && count%1000 == 0 {
+					fmt.Printf("\rRecorded %d events...", count)
+				}
 			}
 		}
 	}()
+
+	// Start generating
+	ticker := time.NewTicker(tickRate)
+	defer ticker.Stop()
 
 	if err := gen.Generate(ctx, ticker, events); err != nil && err != context.Canceled {
 		return fmt.Errorf("generator error: %w", err)
 	}
 
 	close(events)
-	time.Sleep(100 * time.Millisecond) // Let recording finish
+	
+	// Wait for recording to finish
+	select {
+	case err := <-recordingDone:
+		if err != nil && err != context.Canceled {
+			return fmt.Errorf("recording error: %w", err)
+		}
+	case <-time.After(5 * time.Second):
+		return fmt.Errorf("recording did not complete in time")
+	}
 
+	eventCount := rec.GetCount()
 	fmt.Printf("\n\n✅ Recording complete: %d events saved to %s\n", eventCount, recordOut)
 	return nil
 }

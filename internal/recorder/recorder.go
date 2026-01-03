@@ -7,15 +7,17 @@ import (
 	"fmt"
 	"os"
 	"sync"
+	"sync/atomic"
 
 	"github.com/synheart/synheart-cli/internal/models"
 )
 
 // Recorder writes events to an NDJSON file
 type Recorder struct {
-	file   *os.File
-	writer *bufio.Writer
-	mu     sync.Mutex
+	file       *os.File
+	writer     *bufio.Writer
+	mu         sync.Mutex
+	eventCount int64 // atomic counter for events recorded
 }
 
 // NewRecorder creates a new recorder
@@ -49,7 +51,16 @@ func (r *Recorder) Record(event models.Event) error {
 		return fmt.Errorf("failed to write newline: %w", err)
 	}
 
+	// Increment event counter atomically
+	atomic.AddInt64(&r.eventCount, 1)
+
 	return nil
+}
+
+// GetCount returns the number of events that have been recorded.
+// This is thread-safe and can be called concurrently.
+func (r *Recorder) GetCount() int64 {
+	return atomic.LoadInt64(&r.eventCount)
 }
 
 // RecordFromChannel reads events from a channel and records them
