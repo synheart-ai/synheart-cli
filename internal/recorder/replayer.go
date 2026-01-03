@@ -13,9 +13,12 @@ import (
 
 // Replayer reads and replays events from an NDJSON file
 type Replayer struct {
-	filename string
-	speed    float64
-	loop     bool
+	filename   string
+	speed      float64
+	loop       bool
+	eventCount int
+	firstEvent *models.Event
+	loaded     bool
 }
 
 // NewReplayer creates a new replayer
@@ -25,6 +28,40 @@ func NewReplayer(filename string, speed float64, loop bool) *Replayer {
 		speed:    speed,
 		loop:     loop,
 	}
+}
+
+// loadMetadata reads the file once to cache count and first event
+func (r *Replayer) loadMetadata() error {
+	if r.loaded {
+		return nil
+	}
+
+	file, err := os.Open(r.filename)
+	if err != nil {
+		return fmt.Errorf("failed to open recording file: %w", err)
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	r.eventCount = 0
+
+	for scanner.Scan() {
+		r.eventCount++
+		if r.eventCount == 1 {
+			var event models.Event
+			if err := json.Unmarshal(scanner.Bytes(), &event); err != nil {
+				return fmt.Errorf("failed to parse first event: %w", err)
+			}
+			r.firstEvent = &event
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		return fmt.Errorf("error reading file: %w", err)
+	}
+
+	r.loaded = true
+	return nil
 }
 
 // Replay reads events and sends them to the output channel with timing
@@ -112,42 +149,19 @@ func (r *Replayer) replayOnce(ctx context.Context, output chan<- models.Event) e
 
 // CountEvents returns the number of events in the recording
 func (r *Replayer) CountEvents() (int, error) {
-	file, err := os.Open(r.filename)
-	if err != nil {
-		return 0, fmt.Errorf("failed to open recording file: %w", err)
+	if err := r.loadMetadata(); err != nil {
+		return 0, err
 	}
-	defer file.Close()
-
-	scanner := bufio.NewScanner(file)
-	count := 0
-	for scanner.Scan() {
-		count++
-	}
-
-	if err := scanner.Err(); err != nil {
-		return 0, fmt.Errorf("error reading file: %w", err)
-	}
-
-	return count, nil
+	return r.eventCount, nil
 }
 
 // GetFirstEvent returns the first event in the recording
 func (r *Replayer) GetFirstEvent() (*models.Event, error) {
-	file, err := os.Open(r.filename)
-	if err != nil {
-		return nil, fmt.Errorf("failed to open recording file: %w", err)
+	if err := r.loadMetadata(); err != nil {
+		return nil, err
 	}
-	defer file.Close()
-
-	scanner := bufio.NewScanner(file)
-	if !scanner.Scan() {
+	if r.firstEvent == nil {
 		return nil, fmt.Errorf("recording file is empty")
 	}
-
-	var event models.Event
-	if err := json.Unmarshal(scanner.Bytes(), &event); err != nil {
-		return nil, fmt.Errorf("failed to parse first event: %w", err)
-	}
-
-	return &event, nil
+	return r.firstEvent, nil
 }

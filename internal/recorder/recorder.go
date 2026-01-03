@@ -52,7 +52,14 @@ func (r *Recorder) Record(event models.Event) error {
 	}
 
 	// Increment event counter atomically
-	atomic.AddInt64(&r.eventCount, 1)
+	count := atomic.AddInt64(&r.eventCount, 1)
+
+	// Flush every 100 events to prevent data loss on crash
+	if count%100 == 0 {
+		if err := r.writer.Flush(); err != nil {
+			return fmt.Errorf("failed to flush buffer: %w", err)
+		}
+	}
 
 	return nil
 }

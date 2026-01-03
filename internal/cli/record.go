@@ -144,7 +144,7 @@ func runRecord(cmd *cobra.Command, args []string) error {
 	}
 
 	close(events)
-	
+
 	// Wait for recording to finish
 	select {
 	case err := <-recordingDone:
