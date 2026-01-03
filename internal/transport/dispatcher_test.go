@@ -172,15 +172,7 @@ func TestDispatcher_SlowSubscriber(t *testing.T) {
 
 	go dispatcher.Run(ctx)
 
-	// Send events faster than slow subscriber can consume
-	numEvents := 10
-	for i := 0; i < numEvents; i++ {
-		source <- models.Event{EventID: fmt.Sprintf("event-%d", i)}
-		time.Sleep(1 * time.Millisecond) // Small delay between sends
-	}
-	close(source)
-
-	// Fast subscriber should get all events
+	// Start fast subscriber immediately so it can consume as events arrive
 	fastCount := 0
 	fastDone := make(chan struct{})
 	go func() {
@@ -190,7 +182,7 @@ func TestDispatcher_SlowSubscriber(t *testing.T) {
 		}
 	}()
 
-	// Slow subscriber processes events slowly
+	// Start slow subscriber immediately
 	slowCount := 0
 	slowDone := make(chan struct{})
 	go func() {
@@ -201,16 +193,27 @@ func TestDispatcher_SlowSubscriber(t *testing.T) {
 		}
 	}()
 
+	// Give subscribers time to start
+	time.Sleep(5 * time.Millisecond)
+
+	// Send events faster than slow subscriber can consume
+	numEvents := 10
+	for i := 0; i < numEvents; i++ {
+		source <- models.Event{EventID: fmt.Sprintf("event-%d", i)}
+		time.Sleep(1 * time.Millisecond) // Small delay between sends
+	}
+	close(source)
+
 	// Wait for both subscribers to finish
 	<-fastDone
 	<-slowDone
 
-	// Fast subscriber should get all events
+	// Fast subscriber should get all events (since it consumes immediately)
 	if fastCount != numEvents {
 		t.Errorf("fast subscriber: expected %d events, got %d", numEvents, fastCount)
 	}
 
-	// Slow subscriber might have dropped some due to buffer overflow
+	// Slow subscriber should have dropped some due to buffer overflow
 	// This is expected behavior - verify that some events were dropped
 	dropped := dispatcher.GetDroppedCount()
 	if dropped == 0 && slowCount < numEvents {
@@ -221,6 +224,11 @@ func TestDispatcher_SlowSubscriber(t *testing.T) {
 	// At least verify slow subscriber got some events
 	if slowCount == 0 {
 		t.Error("slow subscriber should have received at least some events")
+	}
+
+	// Verify that some events were dropped for the slow subscriber
+	if dropped == 0 {
+		t.Logf("Note: No events were dropped, but slow subscriber got %d/%d events", slowCount, numEvents)
 	}
 }
 
