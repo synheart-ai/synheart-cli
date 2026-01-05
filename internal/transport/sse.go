@@ -42,15 +42,24 @@ func (s *SSEServer) Start(ctx context.Context) error {
 		Handler: mux,
 	}
 
+	errCh := make(chan error, 1)
 	go func() {
 		log.Printf("SSE server listening on http://%s:%d/hsi/sse", s.host, s.port)
 		if err := s.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Printf("SSE server error: %v", err)
+			errCh <- err
 		}
+		close(errCh)
 	}()
 
-	<-ctx.Done()
-	return s.Shutdown()
+	select {
+	case <-ctx.Done():
+		return s.Shutdown()
+	case err := <-errCh:
+		if err != nil {
+			return fmt.Errorf("SSE server failed: %w", err)
+		}
+		return nil
+	}
 }
 
 func (s *SSEServer) handleRoot(w http.ResponseWriter, r *http.Request) {
@@ -80,7 +89,10 @@ func (s *SSEServer) handleSSE(w http.ResponseWriter, r *http.Request) {
 		select {
 		case <-r.Context().Done():
 			return
-		case data := <-clientChan:
+		case data, ok := <-clientChan:
+			if !ok {
+				return
+			}
 			fmt.Fprintf(w, "data: %s\n\n", data)
 			flusher.Flush()
 		}
