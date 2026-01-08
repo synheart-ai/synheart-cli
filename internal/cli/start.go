@@ -151,7 +151,7 @@ func runStart(cmd *cobra.Command, args []string) error {
 
 		recEvents := dispatcher.Subscribe()
 		go func() {
-			if err := rec.RecordFromChannel(ctx, recEvents); err != nil && err != context.Canceled {
+			if err := rec.RecordFromChannel(ctx, recEvents, nil); err != nil && err != context.Canceled {
 				log.Printf("Recording error: %v", err)
 			}
 		}()
