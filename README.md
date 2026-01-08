@@ -108,6 +108,13 @@ These flags apply to most commands:
 - `--no-color` — Disable colored output
 - `-q, --quiet` — Suppress non-essential output
 - `-v, --verbose` — Verbose logging
+- `--pprof` — Enable pprof HTTP server (live endpoints at `/debug/pprof`)
+- `--pprof-addr <host:port>` — Address for pprof HTTP server (default: `127.0.0.1:6060`)
+- `--cpu-profile <path>` — Write CPU profile to file (stops on exit)
+- `--mem-profile <path>` — Write heap profile to file on exit
+- `--trace-profile <path>` — Write execution trace to file
+- `--block-profile-rate <n>` — Enable block profiling with given sampling rate (0 to disable)
+- `--mutex-profile-fraction <n>` — Enable mutex profiling with given fraction (0 to disable)
 
 ## Quick Start
 
