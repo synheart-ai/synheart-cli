@@ -2,7 +2,6 @@ package transport
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -10,6 +9,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/synheart/synheart-cli/internal/encoding"
 	"github.com/synheart/synheart-cli/internal/models"
 )
 
@@ -26,14 +26,16 @@ type WebSocketServer struct {
 	clients map[*websocket.Conn]bool
 	mu      sync.RWMutex
 	server  *http.Server
+	encoder encoding.Encoder
 }
 
 // NewWebSocketServer creates a new WebSocket server
-func NewWebSocketServer(host string, port int) *WebSocketServer {
+func NewWebSocketServer(host string, port int, encoder encoding.Encoder) *WebSocketServer {
 	return &WebSocketServer{
 		host:    host,
 		port:    port,
 		clients: make(map[*websocket.Conn]bool),
+		encoder: encoder,
 	}
 }
 
@@ -106,19 +108,24 @@ func (s *WebSocketServer) handleWebSocket(w http.ResponseWriter, r *http.Request
 
 // Broadcast sends an event to all connected clients
 func (s *WebSocketServer) Broadcast(event models.Event) error {
-	data, err := json.Marshal(event)
+	data, err := s.encoder.Encode(event)
 	if err != nil {
-		return fmt.Errorf("failed to marshal event: %w", err)
+		return fmt.Errorf("failed to encode event: %w", err)
+	}
+
+	// Use binary for protobuf, text for JSON
+	msgType := websocket.TextMessage
+	if s.encoder.ContentType() == "application/x-protobuf" {
+		msgType = websocket.BinaryMessage
 	}
 
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
 	for client := range s.clients {
-		err := client.WriteMessage(websocket.TextMessage, data)
+		err := client.WriteMessage(msgType, data)
 		if err != nil {
 			log.Printf("Failed to send to client: %v", err)
-			// Client will be cleaned up by the connection handler
 		}
 	}
 
