@@ -1,0 +1,417 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <title>Minimal SSE Client</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <style>
+            body {
+                margin: 0;
+                font-family:
+                    system-ui,
+                    -apple-system,
+                    Segoe UI,
+                    Roboto,
+                    Helvetica,
+                    Arial,
+                    sans-serif;
+                background: #0f172a;
+                color: #e2e8f0;
+            }
+            .container {
+                max-width: 800px;
+                margin: 0 auto;
+                padding: 16px;
+            }
+            h1 {
+                font-size: 18px;
+                margin: 0 0 12px;
+                font-weight: 600;
+            }
+            .controls {
+                display: grid;
+                grid-template-columns: 1fr auto auto auto;
+                gap: 8px;
+                margin-bottom: 12px;
+            }
+            input[type="text"] {
+                padding: 8px 10px;
+                border-radius: 8px;
+                border: 1px solid #334155;
+                outline: none;
+                background: #0b1220;
+                color: #e2e8f0;
+            }
+            input::placeholder {
+                color: #64748b;
+            }
+            button {
+                padding: 8px 12px;
+                border-radius: 8px;
+                border: 1px solid #334155;
+                background: #111827;
+                color: #e2e8f0;
+                cursor: pointer;
+            }
+            button:hover {
+                filter: brightness(1.08);
+            }
+            .status {
+                display: inline-flex;
+                align-items: center;
+                gap: 8px;
+                font-size: 13px;
+                padding: 6px 10px;
+                border-radius: 999px;
+                border: 1px solid #334155;
+                background: #0b1220;
+                margin: 8px 0 12px;
+            }
+            .dot {
+                width: 10px;
+                height: 10px;
+                border-radius: 50%;
+                background: #ef4444; /* disconnected */
+            }
+            .dot.connected {
+                background: #22c55e;
+            }
+            .dot.connecting {
+                background: #f59e0b;
+            }
+            .card {
+                border: 1px solid #334155;
+                border-radius: 12px;
+                background: #0b1220;
+                overflow: hidden;
+            }
+            .card h2 {
+                font-size: 15px;
+                margin: 0;
+                padding: 10px 12px;
+                border-bottom: 1px solid #334155;
+                background: #0e1626;
+            }
+            .card-body {
+                padding: 12px;
+                max-height: 420px;
+                overflow: auto;
+            }
+            .event {
+                border: 1px solid #334155;
+                border-radius: 8px;
+                padding: 10px;
+                margin-bottom: 10px;
+                background: #0f1a2c;
+            }
+            .event-header {
+                display: flex;
+                gap: 8px;
+                flex-wrap: wrap;
+                margin-bottom: 6px;
+                font-size: 12px;
+                color: #93c5fd;
+            }
+            .tag {
+                border: 1px solid #334155;
+                border-radius: 999px;
+                padding: 2px 8px;
+                background: #0b1220;
+            }
+            pre {
+                margin: 0;
+                white-space: pre-wrap;
+                word-wrap: break-word;
+                font-size: 13px;
+                line-height: 1.35;
+                color: #cbd5e1;
+            }
+            .footer {
+                margin-top: 8px;
+                font-size: 12px;
+                color: #64748b;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <h1>Minimal Server-Sent Events (SSE) Client</h1>
+
+            <div class="status" id="status">
+                <span class="dot" id="statusDot"></span>
+                <span id="statusText">Disconnected</span>
+            </div>
+
+            <div class="controls">
+                <input
+                    id="endpoint"
+                    type="text"
+                    placeholder="e.g. http://localhost:8080/sse or /api/sse"
+                />
+                <button id="connectBtn">Connect</button>
+                <button id="disconnectBtn" disabled>Disconnect</button>
+                <button id="clearBtn">Clear</button>
+            </div>
+
+            <div class="card">
+                <h2>Events</h2>
+                <div class="card-body" id="events"></div>
+            </div>
+
+            <div class="footer">
+                Notes:
+                <ul>
+                    <li>
+                        EventSource does not support custom headers; use
+                        same-origin endpoints or a proxy if auth is required.
+                    </li>
+                    <li>
+                        If your SSE server sets Access-Control-Allow-Origin: *,
+                        avoid credentials mode; this client does not send
+                        credentials to prevent CORS errors. Host the UI on the
+                        same origin or configure the server to allow your origin
+                        explicitly.
+                    </li>
+                    <li>
+                        Servers may send default "message" events or named
+                        events via <code>event: name</code>.
+                    </li>
+                </ul>
+            </div>
+        </div>
+
+        <script>
+            (function () {
+                const $ = (id) => document.getElementById(id);
+
+                const endpointInput = $("endpoint");
+                const connectBtn = $("connectBtn");
+                const disconnectBtn = $("disconnectBtn");
+                const clearBtn = $("clearBtn");
+                const eventsEl = $("events");
+                const statusDot = $("statusDot");
+                const statusText = $("statusText");
+
+                let es = null;
+                let reconnectAttempt = 0;
+                let reconnectTimer = null;
+                let heartbeatTimer = null;
+                let lastEventTs = 0;
+                // Reconnect/backoff + heartbeat config
+                const RECONNECT_BASE_MS = 1000;
+                const RECONNECT_MAX_MS = 15000;
+                const HEARTBEAT_TIMEOUT_MS = 20000; // if no event within this window, reconnect
+
+                function setStatus(state, text) {
+                    statusDot.classList.remove("connected", "connecting");
+                    if (state === "connected")
+                        statusDot.classList.add("connected");
+                    else if (state === "connecting")
+                        statusDot.classList.add("connecting");
+                    statusText.textContent = text;
+                }
+
+                function addEvent({ id, name, data }) {
+                    const el = document.createElement("div");
+                    el.className = "event";
+
+                    const header = document.createElement("div");
+                    header.className = "event-header";
+
+                    const idTag = document.createElement("span");
+                    idTag.className = "tag";
+                    idTag.textContent = "id: " + (id ?? "—");
+
+                    const nameTag = document.createElement("span");
+                    nameTag.className = "tag";
+                    nameTag.textContent = "event: " + (name ?? "message");
+
+                    const timeTag = document.createElement("span");
+                    timeTag.className = "tag";
+                    timeTag.textContent = new Date().toLocaleTimeString();
+
+                    header.appendChild(idTag);
+                    header.appendChild(nameTag);
+                    header.appendChild(timeTag);
+
+                    const pre = document.createElement("pre");
+                    let text = data;
+                    try {
+                        const parsed =
+                            typeof data === "string" ? JSON.parse(data) : data;
+                        text = JSON.stringify(parsed, null, 2);
+                    } catch {
+                        // not JSON, keep as string
+                    }
+                    pre.textContent =
+                        typeof text === "string" ? text : String(text);
+
+                    el.appendChild(header);
+                    el.appendChild(pre);
+                    eventsEl.appendChild(el);
+
+                    eventsEl.scrollTop = eventsEl.scrollHeight;
+                }
+
+                function clearEvents() {
+                    eventsEl.innerHTML = "";
+                }
+
+                function getBackoffDelay() {
+                    const exp = Math.min(
+                        RECONNECT_MAX_MS,
+                        RECONNECT_BASE_MS * Math.pow(2, reconnectAttempt),
+                    );
+                    const jitter = Math.floor(Math.random() * 250);
+                    return Math.min(RECONNECT_MAX_MS, exp + jitter);
+                }
+
+                function scheduleReconnect(reason) {
+                    if (reconnectTimer) clearTimeout(reconnectTimer);
+                    reconnectAttempt += 1;
+                    const delay = getBackoffDelay();
+                    setStatus(
+                        "connecting",
+                        (reason ? reason + " — " : "") +
+                            "Reconnecting in " +
+                            delay +
+                            "ms…",
+                    );
+                    reconnectTimer = setTimeout(() => {
+                        connect();
+                    }, delay);
+                }
+
+                function startHeartbeat() {
+                    stopHeartbeat();
+                    lastEventTs = Date.now();
+                    heartbeatTimer = setInterval(
+                        () => {
+                            const now = Date.now();
+                            if (now - lastEventTs > HEARTBEAT_TIMEOUT_MS) {
+                                setStatus(
+                                    "connecting",
+                                    "Heartbeat missed — reconnecting…",
+                                );
+                                if (es) {
+                                    try {
+                                        es.close();
+                                    } catch {}
+                                    es = null;
+                                }
+                                scheduleReconnect("Stale connection");
+                            }
+                        },
+                        Math.min(HEARTBEAT_TIMEOUT_MS, 5000),
+                    );
+                }
+
+                function stopHeartbeat() {
+                    if (heartbeatTimer) {
+                        clearInterval(heartbeatTimer);
+                        heartbeatTimer = null;
+                    }
+                }
+
+                function connect() {
+                    const url = (endpointInput.value || "").trim();
+                    if (!url) {
+                        setStatus(
+                            "disconnected",
+                            "Please enter a valid SSE endpoint URL",
+                        );
+                        return;
+                    }
+
+                    disconnect(false);
+                    setStatus("connecting", "Connecting…");
+
+                    try {
+                        es = new EventSource(url);
+                    } catch {
+                        setStatus("disconnected", "Invalid URL");
+                        return;
+                    }
+
+                    es.onopen = () => {
+                        setStatus("connected", "Connected");
+                        connectBtn.disabled = true;
+                        disconnectBtn.disabled = false;
+                        reconnectAttempt = 0;
+                        if (reconnectTimer) {
+                            clearTimeout(reconnectTimer);
+                            reconnectTimer = null;
+                        }
+                        lastEventTs = Date.now();
+                        startHeartbeat();
+                    };
+
+                    es.onerror = () => {
+                        stopHeartbeat();
+                        connectBtn.disabled = false;
+                        disconnectBtn.disabled = true;
+                        scheduleReconnect("Error or connection closed");
+                    };
+
+                    es.onmessage = (ev) => {
+                        lastEventTs = Date.now();
+                        addEvent({
+                            id: ev.lastEventId || null,
+                            name: "message",
+                            data: ev.data,
+                        });
+                    };
+
+                    // Listen to a couple of common named events (optional)
+                    ["info", "warning", "error"].forEach((evtName) => {
+                        es.addEventListener(evtName, (ev) => {
+                            lastEventTs = Date.now();
+                            addEvent({
+                                id: ev.lastEventId || null,
+                                name: evtName,
+                                data: ev.data,
+                            });
+                        });
+                    });
+                }
+
+                function disconnect(updateStatus = true) {
+                    if (reconnectTimer) {
+                        clearTimeout(reconnectTimer);
+                        reconnectTimer = null;
+                    }
+                    stopHeartbeat();
+                    if (es) {
+                        try {
+                            es.close();
+                        } catch {}
+                        es = null;
+                    }
+                    if (updateStatus) {
+                        setStatus("disconnected", "Disconnected");
+                        connectBtn.disabled = false;
+                        disconnectBtn.disabled = true;
+                    }
+                }
+
+                // Wire up UI
+                connectBtn.addEventListener("click", connect);
+                disconnectBtn.addEventListener("click", () => disconnect(true));
+                clearBtn.addEventListener("click", clearEvents);
+
+                // Persist endpoint between sessions
+                const STORAGE_KEY = "sse_endpoint";
+                endpointInput.value =
+                    localStorage.getItem(STORAGE_KEY) ||
+                    location.origin + "/api/sse";
+                endpointInput.addEventListener("change", () => {
+                    localStorage.setItem(STORAGE_KEY, endpointInput.value);
+                });
+            })();
+        </script>
+        <div class="credits">
+            OSS Credits: UI authored with contributions by EnochCodes. Please
+            retain this credit.
+        </div>
+    </body>
+</html>

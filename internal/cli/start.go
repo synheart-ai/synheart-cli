@@ -99,6 +99,12 @@ func runStart(cmd *cobra.Command, args []string) error {
 	// Create WebSocket server
 	wsServer := transport.NewWebSocketServer(startHost, startPort, enc)
 
+	// Create Server-Sent Events server
+	sse := transport.NewSSEServer(startHost, startPort+1, enc)
+
+	// Create UDP server
+	udp := transport.NewUDPServer(startHost, startPort+2, enc)
+
 	// Setup context with cancellation
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -120,13 +126,29 @@ func runStart(cmd *cobra.Command, args []string) error {
 		}
 	}()
 
-	// Give server time to start
-	time.Sleep(100 * time.Millisecond)
+	// Start Server-Sent Events server
+	go func() {
+		if err := sse.Start(ctx); err != nil && err != context.Canceled {
+			log.Printf("Server-Sent Events server error: %v", err)
+		}
+	}()
+
+	// Start UDP server
+	go func() {
+		if err := udp.Start(ctx); err != nil && err != context.Canceled {
+			log.Printf("UDP server error: %v", err)
+		}
+	}()
+
+	// Give servers time to start
+	time.Sleep(200 * time.Millisecond)
 
 	fmt.Printf("🚀 Synheart Mock Server Started\n\n")
 	fmt.Printf("Scenario:     %s\n", scen.Name)
 	fmt.Printf("Description:  %s\n", scen.Description)
 	fmt.Printf("WebSocket:    %s\n", wsServer.GetAddress())
+	fmt.Printf("SSE: %s\n", sse.GetAddress())
+	fmt.Printf("UDP: %s\n", udp.GetAddress())
 	fmt.Printf("Format:       %s\n", startFormat)
 	fmt.Printf("Seed:         %d\n", startSeed)
 	fmt.Printf("Run ID:       %s\n\n", gen.GetRunID())
@@ -137,6 +159,20 @@ func runStart(cmd *cobra.Command, args []string) error {
 	wsEvents := dispatcher.Subscribe()
 	go func() {
 		if err := wsServer.BroadcastFromChannel(ctx, wsEvents); err != nil && err != context.Canceled {
+			log.Printf("Broadcast error: %v", err)
+		}
+	}()
+
+	sseEvents := dispatcher.Subscribe()
+	go func() {
+		if err := sse.BroadcastFromChannel(ctx, sseEvents); err != nil && err != context.Canceled {
+			log.Printf("Broadcast error: %v", err)
+		}
+	}()
+
+	udpEvents := dispatcher.Subscribe()
+	go func() {
+		if err := udp.BroadcastFromChannel(ctx, udpEvents); err != nil && err != context.Canceled {
 			log.Printf("Broadcast error: %v", err)
 		}
 	}()
