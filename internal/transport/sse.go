@@ -119,7 +119,8 @@ func (s *SSEServer) removeClient(ch chan []byte) {
 func (s *SSEServer) Broadcast(event models.Event) error {
 	data, err := s.encoder.Encode(event)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to encode event: %w", err)
+
 	}
 
 	s.mu.RLock()
@@ -144,7 +145,9 @@ func (s *SSEServer) BroadcastFromChannel(ctx context.Context, events <-chan mode
 			if !ok {
 				return nil
 			}
-			s.Broadcast(event)
+			if err := s.Broadcast(event); err != nil {
+				log.Printf("Broadcast error: %v", err)
+			}
 		}
 	}
 }
