@@ -90,9 +90,9 @@ func (s *WebSocketServer) writePump(c *client) {
 		// set a deadline If the network is too slow this will time out
 		// and clean up the connection instead of hanging forever
 		c.conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
-		
+
 		if err := c.conn.WriteMessage(msgType, msg); err != nil {
-			return 
+			return
 		}
 	}
 }
