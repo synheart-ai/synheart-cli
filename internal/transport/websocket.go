@@ -19,11 +19,16 @@ var upgrader = websocket.Upgrader{
 	},
 }
 
+type client struct {
+	conn *websocket.Conn
+	send chan []byte
+}
+
 // WebSocketServer broadcasts events to WebSocket clients
 type WebSocketServer struct {
 	host    string
 	port    int
-	clients map[*websocket.Conn]bool
+	clients map[*client]bool
 	mu      sync.RWMutex
 	server  *http.Server
 	encoder encoding.Encoder
@@ -34,7 +39,7 @@ func NewWebSocketServer(host string, port int, encoder encoding.Encoder) *WebSoc
 	return &WebSocketServer{
 		host:    host,
 		port:    port,
-		clients: make(map[*websocket.Conn]bool),
+		clients: make(map[*client]bool),
 		encoder: encoder,
 	}
 }
@@ -71,6 +76,27 @@ func (s *WebSocketServer) handleRoot(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "Connected clients: %d\n", s.GetClientCount())
 }
 
+func (s *WebSocketServer) writePump(c *client) {
+	defer func() {
+		c.conn.Close()
+	}()
+
+	for msg := range c.send {
+		msgType := websocket.TextMessage
+		if s.encoder.ContentType() == "application/x-protobuf" {
+			msgType = websocket.BinaryMessage
+		}
+
+		// set a deadline If the network is too slow this will time out
+		// and clean up the connection instead of hanging forever
+		c.conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
+
+		if err := c.conn.WriteMessage(msgType, msg); err != nil {
+			return
+		}
+	}
+}
+
 // handleWebSocket handles WebSocket connections
 func (s *WebSocketServer) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	conn, err := upgrader.Upgrade(w, r, nil)
@@ -79,22 +105,31 @@ func (s *WebSocketServer) handleWebSocket(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	c := &client{
+		conn: conn,
+		send: make(chan []byte, 256),
+	}
+
 	s.mu.Lock()
-	s.clients[conn] = true
+	s.clients[c] = true
 	clientCount := len(s.clients)
 	s.mu.Unlock()
 
 	log.Printf("Client connected from %s (total: %d)", r.RemoteAddr, clientCount)
 
+	go s.writePump(c)
+
 	// Handle client disconnection
 	defer func() {
 		s.mu.Lock()
-		delete(s.clients, conn)
-		clientCount := len(s.clients)
+		// only close if Shutdown hasnt already done so
+		if _, ok := s.clients[c]; ok {
+			delete(s.clients, c)
+			close(c.send)
+		}
+		currentCount := len(s.clients)
 		s.mu.Unlock()
-
-		conn.Close()
-		log.Printf("Client disconnected (total: %d)", clientCount)
+		log.Printf("Client disconnected (total: %d)", currentCount)
 	}()
 
 	// Keep connection alive and handle client messages
@@ -113,19 +148,14 @@ func (s *WebSocketServer) Broadcast(event models.Event) error {
 		return fmt.Errorf("failed to encode event: %w", err)
 	}
 
-	// Use binary for protobuf, text for JSON
-	msgType := websocket.TextMessage
-	if s.encoder.ContentType() == "application/x-protobuf" {
-		msgType = websocket.BinaryMessage
-	}
-
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
 	for client := range s.clients {
-		err := client.WriteMessage(msgType, data)
-		if err != nil {
-			log.Printf("Failed to send to client: %v", err)
+		select {
+		case client.send <- data:
+		default:
+			log.Printf("Buffer overflow for client! Dropping real-time packet.")
 		}
 	}
 
@@ -158,19 +188,17 @@ func (s *WebSocketServer) GetClientCount() int {
 
 // Shutdown gracefully shuts down the server
 func (s *WebSocketServer) Shutdown() error {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	// Close all client connections
 	s.mu.Lock()
-	for client := range s.clients {
-		client.Close()
+	// Close all client channels This triggers writePumps to finish and exit.
+	for c := range s.clients {
+		close(c.send)
+		delete(s.clients, c)
 	}
-	s.clients = make(map[*websocket.Conn]bool)
 	s.mu.Unlock()
 
-	// Shutdown HTTP server
 	if s.server != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
 		return s.server.Shutdown(ctx)
 	}
 	return nil
