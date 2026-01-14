@@ -96,6 +96,10 @@ func (s *UDPServer) handleMessage(msg string, addr *net.UDPAddr) {
 
 // Broadcast sends an event to all registered clients
 func (s *UDPServer) Broadcast(event models.Event) error {
+	if s.GetClientCount() == 0 {
+		return nil
+	}
+
 	data, err := s.encoder.Encode(event)
 	if err != nil {
 		return err

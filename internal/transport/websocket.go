@@ -143,6 +143,10 @@ func (s *WebSocketServer) handleWebSocket(w http.ResponseWriter, r *http.Request
 
 // Broadcast sends an event to all connected clients
 func (s *WebSocketServer) Broadcast(event models.Event) error {
+	if s.GetClientCount() == 0 {
+		return nil
+	}
+
 	data, err := s.encoder.Encode(event)
 	if err != nil {
 		return fmt.Errorf("failed to encode event: %w", err)
