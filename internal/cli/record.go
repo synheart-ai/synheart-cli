@@ -109,9 +109,16 @@ func runRecord(cmd *cobra.Command, args []string) error {
 	fmt.Printf("Seed:       %d\n", recordSeed)
 	fmt.Printf("Run ID:     %s\n\n", gen.GetRunID())
 
+	eventCount := 0
+	progressCallback := func() {
+		eventCount++ // internal counter increments
+		if eventCount%1000 == 0 {
+			fmt.Printf("\rRecorded %d events...", eventCount)
+		}
+	}
 	// Start recording
 	go func() {
-		if err := rec.RecordFromChannel(ctx, events); err != nil && err != context.Canceled {
+		if err := rec.RecordFromChannel(ctx, events, progressCallback); err != nil && err != context.Canceled {
 			log.Printf("Recording error: %v", err)
 		}
 	}()
@@ -122,16 +129,6 @@ func runRecord(cmd *cobra.Command, args []string) error {
 	// Start generating
 	ticker := time.NewTicker(tickRate)
 	defer ticker.Stop()
-
-	eventCount := 0
-	go func() {
-		for range events {
-			eventCount++
-			if eventCount%1000 == 0 {
-				fmt.Printf("\rRecorded %d events...", eventCount)
-			}
-		}
-	}()
 
 	if err := gen.Generate(ctx, ticker, events); err != nil && err != context.Canceled {
 		return fmt.Errorf("generator error: %w", err)

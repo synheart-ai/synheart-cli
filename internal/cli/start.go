@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/synheart/synheart-cli/internal/encoding"
 	"github.com/synheart/synheart-cli/internal/generator"
 	"github.com/synheart/synheart-cli/internal/models"
 	"github.com/synheart/synheart-cli/internal/recorder"
@@ -26,6 +27,7 @@ var (
 	startRate     string
 	startSeed     int64
 	startOut      string
+	startFormat   string
 )
 
 var startCmd = &cobra.Command{
@@ -48,6 +50,7 @@ func init() {
 	startCmd.Flags().StringVar(&startRate, "rate", "50hz", "Global tick rate")
 	startCmd.Flags().Int64Var(&startSeed, "seed", time.Now().UnixNano(), "Random seed for deterministic output")
 	startCmd.Flags().StringVar(&startOut, "out", "", "Record events to file")
+	startCmd.Flags().StringVar(&startFormat, "format", "json", "Output format: json|protobuf")
 }
 
 func runStart(cmd *cobra.Command, args []string) error {
@@ -90,8 +93,17 @@ func runStart(cmd *cobra.Command, args []string) error {
 	// Create event channel
 	events := make(chan models.Event, 100)
 
+	// Create encoder for the requested format
+	enc := encoding.NewEncoder(encoding.Format(startFormat))
+
 	// Create WebSocket server
-	wsServer := transport.NewWebSocketServer(startHost, startPort)
+	wsServer := transport.NewWebSocketServer(startHost, startPort, enc)
+
+	// Create Server-Sent Events server
+	sse := transport.NewSSEServer(startHost, startPort+1, enc)
+
+	// Create UDP server
+	udp := transport.NewUDPServer(startHost, startPort+2, enc)
 
 	// Setup context with cancellation
 	ctx, cancel := context.WithCancel(context.Background())
@@ -114,24 +126,57 @@ func runStart(cmd *cobra.Command, args []string) error {
 		}
 	}()
 
-	// Give server time to start
-	time.Sleep(100 * time.Millisecond)
+	// Start Server-Sent Events server
+	go func() {
+		if err := sse.Start(ctx); err != nil && err != context.Canceled {
+			log.Printf("Server-Sent Events server error: %v", err)
+		}
+	}()
+
+	// Start UDP server
+	go func() {
+		if err := udp.Start(ctx); err != nil && err != context.Canceled {
+			log.Printf("UDP server error: %v", err)
+		}
+	}()
+
+	// Give servers time to start
+	time.Sleep(200 * time.Millisecond)
 
 	fmt.Printf("🚀 Synheart Mock Server Started\n\n")
 	fmt.Printf("Scenario:     %s\n", scen.Name)
 	fmt.Printf("Description:  %s\n", scen.Description)
 	fmt.Printf("WebSocket:    %s\n", wsServer.GetAddress())
+	fmt.Printf("SSE: %s\n", sse.GetAddress())
+	fmt.Printf("UDP: %s\n", udp.GetAddress())
+	fmt.Printf("Format:       %s\n", startFormat)
 	fmt.Printf("Seed:         %d\n", startSeed)
 	fmt.Printf("Run ID:       %s\n\n", gen.GetRunID())
 
-	// Start broadcasting
+	// dispatch events to both websocket and recorder
+	dispatcher := transport.NewDispatcher(events, 100)
+
+	wsEvents := dispatcher.Subscribe()
 	go func() {
-		if err := wsServer.BroadcastFromChannel(ctx, events); err != nil && err != context.Canceled {
+		if err := wsServer.BroadcastFromChannel(ctx, wsEvents); err != nil && err != context.Canceled {
 			log.Printf("Broadcast error: %v", err)
 		}
 	}()
 
-	// Start recording if requested
+	sseEvents := dispatcher.Subscribe()
+	go func() {
+		if err := sse.BroadcastFromChannel(ctx, sseEvents); err != nil && err != context.Canceled {
+			log.Printf("Broadcast error: %v", err)
+		}
+	}()
+
+	udpEvents := dispatcher.Subscribe()
+	go func() {
+		if err := udp.BroadcastFromChannel(ctx, udpEvents); err != nil && err != context.Canceled {
+			log.Printf("Broadcast error: %v", err)
+		}
+	}()
+
 	var rec *recorder.Recorder
 	if startOut != "" {
 		rec, err = recorder.NewRecorder(startOut)
@@ -140,22 +185,17 @@ func runStart(cmd *cobra.Command, args []string) error {
 		}
 		defer rec.Close()
 
+		recEvents := dispatcher.Subscribe()
 		go func() {
-			eventsCopy := make(chan models.Event, 100)
-			go func() {
-				for event := range events {
-					eventsCopy <- event
-				}
-				close(eventsCopy)
-			}()
-
-			if err := rec.RecordFromChannel(ctx, eventsCopy); err != nil && err != context.Canceled {
+			if err := rec.RecordFromChannel(ctx, recEvents, nil); err != nil && err != context.Canceled {
 				log.Printf("Recording error: %v", err)
 			}
 		}()
 
 		fmt.Printf("Recording:    %s\n\n", startOut)
 	}
+
+	go dispatcher.Run(ctx)
 
 	fmt.Println("Press Ctrl+C to stop")
 	fmt.Println("\nGenerating events...")

@@ -1,0 +1,471 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <title>WebSocket Client UI</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <style>
+            :root {
+                color-scheme: light dark;
+            }
+            * {
+                box-sizing: border-box;
+            }
+            body {
+                margin: 0;
+                font-family:
+                    system-ui,
+                    -apple-system,
+                    Segoe UI,
+                    Roboto,
+                    Helvetica,
+                    Arial,
+                    "Apple Color Emoji",
+                    "Segoe UI Emoji",
+                    sans-serif;
+                background: #0f172a;
+                color: #e2e8f0;
+            }
+            .container {
+                max-width: 900px;
+                margin: 0 auto;
+                padding: 24px;
+            }
+            header {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: 16px;
+                margin-bottom: 16px;
+            }
+            h1 {
+                font-size: 20px;
+                margin: 0;
+                font-weight: 600;
+            }
+            .status {
+                display: inline-flex;
+                align-items: center;
+                gap: 8px;
+                font-size: 13px;
+                padding: 6px 10px;
+                border-radius: 999px;
+                border: 1px solid #334155;
+                background: #0b1220;
+            }
+            .dot {
+                width: 10px;
+                height: 10px;
+                border-radius: 50%;
+                background: #ef4444; /* disconnected */
+            }
+            .dot.connected {
+                background: #22c55e;
+            } /* connected */
+            .dot.connecting {
+                background: #f59e0b;
+            } /* connecting */
+
+            .controls {
+                display: grid;
+                grid-template-columns: 1fr auto auto auto;
+                gap: 8px;
+                margin-bottom: 12px;
+            }
+            input[type="text"] {
+                width: 100%;
+                padding: 10px 12px;
+                border-radius: 8px;
+                border: 1px solid #334155;
+                outline: none;
+                background: #0b1220;
+                color: #e2e8f0;
+            }
+            input[type="text"]::placeholder {
+                color: #64748b;
+            }
+            button {
+                padding: 10px 14px;
+                border-radius: 8px;
+                border: 1px solid #334155;
+                background: #111827;
+                color: #e2e8f0;
+                cursor: pointer;
+            }
+            button:hover {
+                filter: brightness(1.1);
+            }
+
+            .panel {
+                display: grid;
+                grid-template-columns: 1fr 340px;
+                gap: 12px;
+            }
+            .card {
+                border: 1px solid #334155;
+                border-radius: 12px;
+                background: #0b1220;
+                overflow: hidden;
+            }
+            .card h2 {
+                font-size: 16px;
+                margin: 0;
+                padding: 12px;
+                border-bottom: 1px solid #334155;
+                background: #0e1626;
+            }
+            .card-body {
+                padding: 12px;
+                max-height: 460px;
+                overflow: auto;
+            }
+
+            .event {
+                border: 1px solid #334155;
+                border-radius: 8px;
+                padding: 10px;
+                margin-bottom: 10px;
+                background: #0f1a2c;
+            }
+            .event-header {
+                display: flex;
+                gap: 8px;
+                flex-wrap: wrap;
+                margin-bottom: 6px;
+                font-size: 12px;
+                color: #93c5fd;
+            }
+            .tag {
+                border: 1px solid #334155;
+                border-radius: 999px;
+                padding: 2px 8px;
+                background: #0b1220;
+            }
+            pre {
+                margin: 0;
+                white-space: pre-wrap;
+                word-wrap: break-word;
+                font-size: 13px;
+                line-height: 1.35;
+                color: #cbd5e1;
+            }
+
+            .row {
+                display: grid;
+                grid-template-columns: 1fr;
+                gap: 6px;
+                margin-bottom: 10px;
+            }
+            label {
+                font-size: 12px;
+                color: #94a3b8;
+            }
+            .footer {
+                margin-top: 8px;
+                font-size: 12px;
+                color: #64748b;
+            }
+
+            .kbd {
+                font-family:
+                    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+                    "Liberation Mono", "Courier New", monospace;
+                font-size: 12px;
+                padding: 2px 6px;
+                border: 1px solid #334155;
+                border-bottom-width: 2px;
+                border-radius: 6px;
+                background: #0b1220;
+                color: #cbd5e1;
+            }
+
+            .credits {
+                margin-top: 16px;
+                font-size: 12px;
+                color: #9ca3af;
+                border-top: 1px solid #334155;
+                padding-top: 10px;
+            }
+            .credits a {
+                color: #93c5fd;
+                text-decoration: none;
+            }
+            .credits a:hover {
+                text-decoration: underline;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <header>
+                <h1>WebSocket Client Example</h1>
+                <div class="status" id="status">
+                    <span class="dot" id="statusDot"></span>
+                    <span id="statusText">Disconnected</span>
+                </div>
+            </header>
+
+            <div class="controls">
+                <input
+                    id="endpoint"
+                    type="text"
+                    placeholder="WebSocket endpoint, e.g. ws://localhost:8787/hsi"
+                />
+                <button id="connectBtn">Connect</button>
+                <button id="disconnectBtn" disabled>Disconnect</button>
+                <button id="clearBtn">Clear</button>
+            </div>
+
+            <div class="panel">
+                <div class="card">
+                    <h2>Events</h2>
+                    <div class="card-body" id="events"></div>
+                </div>
+
+                <div class="card">
+                    <h2>Settings</h2>
+                    <div class="card-body">
+                        <div class="row">
+                            <label for="eventNameFilter"
+                                >Filter by event type/name</label
+                            >
+                            <input
+                                id="eventNameFilter"
+                                type="text"
+                                placeholder="Optional: only show matching event type or name"
+                            />
+                        </div>
+
+                        <div class="row">
+                            <label for="showRaw">Show raw message</label>
+                            <input id="showRaw" type="checkbox" />
+                        </div>
+
+                        <div class="row">
+                            <label for="maxEvents">Max events to keep</label>
+                            <input id="maxEvents" type="text" value="500" />
+                        </div>
+
+                        <div class="footer">
+                            Tips:
+                            <ul>
+                                <li>
+                                    Connect to the Synheart CLI default stream
+                                    at <code>ws://localhost:8787/hsi</code>.
+                                </li>
+                                <li>
+                                    Servers may send JSON messages; the UI tries
+                                    to pretty‑print them when possible.
+                                </li>
+                                <li>
+                                    Keyboard:
+                                    <span class="kbd">c</span> connect,
+                                    <span class="kbd">d</span> disconnect,
+                                    <span class="kbd">x</span> clear.
+                                </li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="credits">
+                OSS Credits: UI authored with contributions by EnochCodes.
+                Please retain this credit.
+            </div>
+        </div>
+
+        <script>
+            (function () {
+                const $ = (id) => document.getElementById(id);
+
+                const endpointInput = $("endpoint");
+                const connectBtn = $("connectBtn");
+                const disconnectBtn = $("disconnectBtn");
+                const clearBtn = $("clearBtn");
+                const eventsEl = $("events");
+                const statusDot = $("statusDot");
+                const statusText = $("statusText");
+
+                const eventNameFilterInput = $("eventNameFilter");
+                const showRawInput = $("showRaw");
+                const maxEventsInput = $("maxEvents");
+
+                let ws = null;
+
+                function setStatus(state, text) {
+                    statusDot.classList.remove("connected", "connecting");
+                    if (state === "connected")
+                        statusDot.classList.add("connected");
+                    else if (state === "connecting")
+                        statusDot.classList.add("connecting");
+                    statusText.textContent = text;
+                }
+
+                function addEvent({ id, name, data, raw }) {
+                    const filter = (eventNameFilterInput.value || "").trim();
+                    if (filter && (!name || !String(name).includes(filter)))
+                        return;
+
+                    const el = document.createElement("div");
+                    el.className = "event";
+
+                    const header = document.createElement("div");
+                    header.className = "event-header";
+
+                    const idTag = document.createElement("span");
+                    idTag.className = "tag";
+                    idTag.textContent = "id: " + (id ?? "—");
+
+                    const nameTag = document.createElement("span");
+                    nameTag.className = "tag";
+                    nameTag.textContent = "event: " + (name ?? "message");
+
+                    const timeTag = document.createElement("span");
+                    timeTag.className = "tag";
+                    timeTag.textContent = new Date().toLocaleTimeString();
+
+                    header.appendChild(idTag);
+                    header.appendChild(nameTag);
+                    header.appendChild(timeTag);
+
+                    const pre = document.createElement("pre");
+                    if (showRawInput.checked && raw) {
+                        pre.textContent = raw;
+                    } else {
+                        let text = data;
+                        try {
+                            const parsed =
+                                typeof data === "string"
+                                    ? JSON.parse(data)
+                                    : data;
+                            text = JSON.stringify(parsed, null, 2);
+                        } catch {
+                            /* not JSON, keep as string */
+                        }
+                        pre.textContent =
+                            typeof text === "string" ? text : String(text);
+                    }
+
+                    el.appendChild(header);
+                    el.appendChild(pre);
+                    eventsEl.appendChild(el);
+
+                    const max =
+                        parseInt(maxEventsInput.value || "500", 10) || 500;
+                    while (eventsEl.children.length > max)
+                        eventsEl.removeChild(eventsEl.firstChild);
+
+                    eventsEl.scrollTop = eventsEl.scrollHeight;
+                }
+
+                function clearEvents() {
+                    eventsEl.innerHTML = "";
+                }
+
+                function connect() {
+                    const url = (endpointInput.value || "").trim();
+                    if (!url) {
+                        setStatus(
+                            "disconnected",
+                            "Please enter a valid WebSocket endpoint URL",
+                        );
+                        return;
+                    }
+
+                    disconnect(false);
+                    setStatus("connecting", "Connecting…");
+
+                    try {
+                        ws = new WebSocket(url);
+                    } catch {
+                        setStatus("disconnected", "Invalid URL");
+                        return;
+                    }
+
+                    ws.onopen = () => {
+                        setStatus("connected", "Connected");
+                        connectBtn.disabled = true;
+                        disconnectBtn.disabled = false;
+                    };
+
+                    ws.onerror = () => {
+                        setStatus("disconnected", "Error or connection closed");
+                        connectBtn.disabled = false;
+                        disconnectBtn.disabled = true;
+                    };
+
+                    ws.onclose = () => {
+                        setStatus("disconnected", "Disconnected");
+                        connectBtn.disabled = false;
+                        disconnectBtn.disabled = true;
+                    };
+
+                    ws.onmessage = (ev) => {
+                        let parsed = null;
+                        let typeOrName = "message";
+                        let id = null;
+
+                        try {
+                            parsed = JSON.parse(ev.data);
+                            typeOrName =
+                                parsed.type ??
+                                parsed.event ??
+                                parsed.name ??
+                                "message";
+                            id =
+                                parsed.id ??
+                                parsed.event_id ??
+                                parsed.lastEventId ??
+                                null;
+                        } catch {
+                            // non-JSON message, keep raw text
+                        }
+
+                        addEvent({
+                            id,
+                            name: typeOrName,
+                            data: parsed ?? ev.data,
+                            raw:
+                                typeof ev.data === "string"
+                                    ? ev.data
+                                    : String(ev.data),
+                        });
+                    };
+                }
+
+                function disconnect(updateStatus = true) {
+                    if (ws) {
+                        try {
+                            ws.close();
+                        } catch {}
+                        ws = null;
+                    }
+                    if (updateStatus) {
+                        setStatus("disconnected", "Disconnected");
+                        connectBtn.disabled = false;
+                        disconnectBtn.disabled = true;
+                    }
+                }
+
+                connectBtn.addEventListener("click", connect);
+                disconnectBtn.addEventListener("click", () => disconnect(true));
+                clearBtn.addEventListener("click", clearEvents);
+
+                document.addEventListener("keydown", (e) => {
+                    if (e.key === "c") connect();
+                    if (e.key === "d") disconnect(true);
+                    if (e.key === "x") clearEvents();
+                });
+
+                const STORAGE_KEY = "ws_endpoint";
+                endpointInput.value =
+                    localStorage.getItem(STORAGE_KEY) ||
+                    "ws://localhost:8787/hsi";
+                endpointInput.addEventListener("change", () => {
+                    localStorage.setItem(STORAGE_KEY, endpointInput.value);
+                });
+            })();
+        </script>
+    </body>
+</html>

@@ -53,7 +53,7 @@ func (r *Recorder) Record(event models.Event) error {
 }
 
 // RecordFromChannel reads events from a channel and records them
-func (r *Recorder) RecordFromChannel(ctx context.Context, events <-chan models.Event) error {
+func (r *Recorder) RecordFromChannel(ctx context.Context, events <-chan models.Event, onEvent func()) error {
 	for {
 		select {
 		case <-ctx.Done():
@@ -64,6 +64,9 @@ func (r *Recorder) RecordFromChannel(ctx context.Context, events <-chan models.E
 			}
 			if err := r.Record(event); err != nil {
 				return err
+			}
+			if onEvent != nil { // <--- The Guard Logic
+				onEvent()
 			}
 		}
 	}
