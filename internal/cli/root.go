@@ -24,6 +24,7 @@ providing repeatable scenarios for QA and demos.`,
 	Example: strings.TrimSpace(`
 synheart mock start
 synheart mock list-scenarios
+synheart receiver
 synheart doctor
 synheart version
 `),
@@ -73,6 +74,7 @@ func init() {
 	rootCmd.AddCommand(doctorCmd)
 	rootCmd.AddCommand(versionCmd)
 	rootCmd.AddCommand(completionCmd)
+	rootCmd.AddCommand(receiverCmd)
 }
 
 func initRootFlags() {
