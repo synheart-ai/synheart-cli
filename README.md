@@ -18,6 +18,7 @@ Changelog: see [`CHANGELOG.md`](CHANGELOG.md).
 - 🌐 **WebSocket Broadcasting**: Real-time data streaming on localhost
 - 📼 **Record & Replay**: Capture sessions for reproducible testing
 - 🎲 **Deterministic Mode**: Use seeds for consistent, repeatable data generation
+- 📥 **Receiver Mode**: Local HTTP server to receive HSI exports from Synheart Life app
 - 🛠️ **Developer Friendly**: Simple CLI, clear documentation, easy SDK integration
 
 ## Installation
@@ -223,6 +224,48 @@ Show detailed information about a scenario.
 ```bash
 synheart mock describe stress_spike
 ```
+
+### `synheart receiver`
+
+Start a local HTTP server to receive HSI exports from the Synheart Life app.
+
+```bash
+# Basic usage (auto-generates token)
+synheart receiver
+
+# Custom port and explicit token
+synheart receiver --port 9000 --token mysecrettoken
+
+# Save exports to files
+synheart receiver --out ./exports
+
+# Accept gzip-compressed payloads
+synheart receiver --gzip
+
+# Output as NDJSON
+synheart receiver --format ndjson
+```
+
+**Flags:**
+- `--host` - Host address to bind to (default: `0.0.0.0`)
+- `--port` - Port to listen on (default: `8787`)
+- `--token` - Static bearer token (auto-generated if not provided)
+- `--out` - Directory to write received payloads (stdout if not set)
+- `--format` - Output format: `json` or `ndjson` (default: `json`)
+- `--gzip` - Accept gzip-compressed payloads
+
+**API Endpoint:** `POST /v1/hsi/import`
+
+**Required Headers:**
+- `Authorization: Bearer <token>`
+- `Content-Type: application/json`
+- `X-Synheart-Export-Id: <uuid>`
+
+**Response Codes:**
+- `200 OK` - Valid payload received
+- `400 Bad Request` - Invalid schema or JSON structure
+- `401 Unauthorized` - Token mismatch
+- `500 Internal Error` - Disk write failure
 
 ### `synheart doctor`
 
@@ -433,6 +476,8 @@ make clean
 - **Demos**: Scripted scenarios that look realistic
 - **QA**: Reproducible test cases with seeded data
 - **Integration Testing**: Validate data pipelines locally
+- **Data Sovereignty**: Receive exports directly from Synheart Life without cloud dependency
+- **Research**: Collect and analyze personal HSI data locally
 
 ## Recording Format
 
@@ -452,9 +497,12 @@ Example:
 
 ## Security Notes
 
-- Binds to `localhost` (127.0.0.1) by default
+- Mock server binds to `localhost` (127.0.0.1) by default
 - Only generates synthetic data, never real user data
 - Use `--host 0.0.0.0` with caution (exposes on LAN)
+- Receiver mode binds to `0.0.0.0` by default for LAN access from mobile devices
+- Receiver auto-generates secure bearer tokens for authentication
+- HSI exports never include raw text, keystrokes, or raw biosignal streams
 
 ## Troubleshooting
 
