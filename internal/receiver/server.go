@@ -107,8 +107,8 @@ func (s *Server) GetStats() Stats {
 func (s *Server) handleRoot(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{
-		"service": "synheart-receiver",
-		"version": "1.0.0",
+		"service":  "synheart-receiver",
+		"version":  "1.0.0",
 		"endpoint": "/v1/hsi/import",
 	})
 }
