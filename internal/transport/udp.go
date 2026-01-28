@@ -7,27 +7,22 @@ import (
 	"net"
 	"sync"
 	"time"
-
-	"github.com/synheart/synheart-cli/internal/encoding"
-	"github.com/synheart/synheart-cli/internal/models"
 )
 
 // UDPServer broadcasts events via UDP
 type UDPServer struct {
 	host    string
 	port    int
-	encoder encoding.Encoder
 	conn    *net.UDPConn
 	clients map[string]*net.UDPAddr
 	mu      sync.RWMutex
 }
 
 // NewUDPServer creates a new UDP server
-func NewUDPServer(host string, port int, encoder encoding.Encoder) *UDPServer {
+func NewUDPServer(host string, port int) *UDPServer {
 	return &UDPServer{
 		host:    host,
 		port:    port,
-		encoder: encoder,
 		clients: make(map[string]*net.UDPAddr),
 	}
 }
@@ -94,15 +89,10 @@ func (s *UDPServer) handleMessage(msg string, addr *net.UDPAddr) {
 	}
 }
 
-// Broadcast sends an event to all registered clients
-func (s *UDPServer) Broadcast(event models.Event) error {
+// Broadcast sends data to all registered clients
+func (s *UDPServer) Broadcast(data []byte) error {
 	if s.GetClientCount() == 0 {
 		return nil
-	}
-
-	data, err := s.encoder.Encode(event)
-	if err != nil {
-		return err
 	}
 
 	s.mu.RLock()
@@ -114,17 +104,17 @@ func (s *UDPServer) Broadcast(event models.Event) error {
 	return nil
 }
 
-// BroadcastFromChannel reads events and broadcasts them
-func (s *UDPServer) BroadcastFromChannel(ctx context.Context, events <-chan models.Event) error {
+// BroadcastFromChannel reads data and broadcasts it
+func (s *UDPServer) BroadcastFromChannel(ctx context.Context, dataStream <-chan []byte) error {
 	for {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case event, ok := <-events:
+		case data, ok := <-dataStream:
 			if !ok {
 				return nil
 			}
-			s.Broadcast(event)
+			s.Broadcast(data)
 		}
 	}
 }

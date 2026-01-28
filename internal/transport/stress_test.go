@@ -11,13 +11,10 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
-
-	"github.com/synheart/synheart-cli/internal/encoding"
-	"github.com/synheart/synheart-cli/internal/models"
 )
 
 func TestSSE_Stress(t *testing.T) {
-	server := NewSSEServer("127.0.0.1", 18888, encoding.NewJSONEncoder())
+	server := NewSSEServer("127.0.0.1", 18888)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -48,7 +45,10 @@ func TestSSE_Stress(t *testing.T) {
 			buf := make([]byte, 8192)
 			for {
 				n, err := resp.Body.Read(buf)
-				if err == io.EOF || err != nil {
+				if err == io.EOF || (err != nil && strings.Contains(err.Error(), "closed")) {
+					break
+				}
+				if err != nil {
 					break
 				}
 				count := strings.Count(string(buf[:n]), "data:")
@@ -60,14 +60,9 @@ func TestSSE_Stress(t *testing.T) {
 	time.Sleep(200 * time.Millisecond)
 	t.Logf("Connected clients: %d", server.GetClientCount())
 
-	// Broadcast 50 events
+	// Broadcast 50 packets
 	for i := 0; i < 50; i++ {
-		event := models.Event{
-			SchemaVersion: "hsi.input.v1",
-			EventID:       fmt.Sprintf("stress-%d", i),
-			Signal:        models.Signal{Name: "stress.test", Value: float64(i)},
-		}
-		server.Broadcast(event)
+		server.Broadcast([]byte(fmt.Sprintf(`{"stress":"test-%d"}`, i)))
 		time.Sleep(20 * time.Millisecond)
 	}
 
@@ -82,7 +77,7 @@ func TestSSE_Stress(t *testing.T) {
 }
 
 func TestUDP_Stress(t *testing.T) {
-	server := NewUDPServer("127.0.0.1", 18889, encoding.NewJSONEncoder())
+	server := NewUDPServer("127.0.0.1", 18889)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -114,7 +109,7 @@ func TestUDP_Stress(t *testing.T) {
 				if err != nil {
 					break
 				}
-				if strings.Contains(string(buf[:n]), "stress.test") {
+				if strings.Contains(string(buf[:n]), "stress") {
 					atomic.AddInt64(&totalReceived, 1)
 				}
 			}
@@ -124,14 +119,9 @@ func TestUDP_Stress(t *testing.T) {
 	time.Sleep(200 * time.Millisecond)
 	t.Logf("Subscribed clients: %d", server.GetClientCount())
 
-	// Broadcast 50 events
+	// Broadcast 50 packets
 	for i := 0; i < 50; i++ {
-		event := models.Event{
-			SchemaVersion: "hsi.input.v1",
-			EventID:       fmt.Sprintf("udp-stress-%d", i),
-			Signal:        models.Signal{Name: "stress.test", Value: float64(i)},
-		}
-		server.Broadcast(event)
+		server.Broadcast([]byte(fmt.Sprintf(`{"stress":"test-%d"}`, i)))
 		time.Sleep(20 * time.Millisecond)
 	}
 
