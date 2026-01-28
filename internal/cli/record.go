@@ -25,16 +25,13 @@ var (
 	recordSeed     int64
 	recordRate     string
 	recordVendor   string
+	recordFlux     bool
 )
 
 var recordCmd = &cobra.Command{
 	Use:   "record",
 	Short: "Record mock data to a file",
-	Long: `Generate and record HSI events to an NDJSON file.
-
-Examples:
-  synheart mock record --scenario workout --duration 15m --out workout.ndjson
-  synheart mock record --scenario stress_spike --seed 42 --out test.ndjson`,
+	Long: `Generate and record HSI records or raw wearable sensor signals to an NDJSON file.`,
 	RunE: runRecord,
 }
 
@@ -45,6 +42,7 @@ func init() {
 	recordCmd.Flags().Int64Var(&recordSeed, "seed", time.Now().UnixNano(), "Random seed")
 	recordCmd.Flags().StringVar(&recordRate, "rate", "50hz", "Global tick rate")
 	recordCmd.Flags().StringVar(&recordVendor, "vendor", "whoop", "Vendor data format: whoop|garmin")
+	recordCmd.Flags().BoolVar(&recordFlux, "flux", false, "Enable Synheart Flux Wasm transformation (defaults to raw vendor JSON)")
 	recordCmd.MarkFlagRequired("out")
 }
 
@@ -82,6 +80,24 @@ func runRecord(cmd *cobra.Command, args []string) error {
 	}
 	gen := generator.NewGenerator(engine, genConfig)
 
+	// Setup Flux Engine (Optional HSI Engine)
+	var fluxEngine *flux.Engine
+	if recordFlux {
+		wasmPath := filepath.Join("bin", "synheart_flux.wasm")
+		if _, err := os.Stat(wasmPath); err != nil {
+			return fmt.Errorf("flux wasm not found (run 'make build' first): %w", err)
+		}
+
+		var err error
+		fluxEngine, err = flux.NewEngine(context.Background(), wasmPath)
+		if err != nil {
+			return fmt.Errorf("failed to initialize flux engine: %w", err)
+		}
+		defer fluxEngine.Close(context.Background())
+	}
+
+	aggregator := flux.NewAggregator()
+
 	// Create recorder
 	rec, err := recorder.NewRecorder(recordOut)
 	if err != nil {
@@ -89,22 +105,9 @@ func runRecord(cmd *cobra.Command, args []string) error {
 	}
 	defer rec.Close()
 
-	// Setup Flux Engine
-	wasmPath := filepath.Join("bin", "synheart_flux.wasm")
-	if _, err := os.Stat(wasmPath); err != nil {
-		return fmt.Errorf("flux wasm not found (run 'make build' first): %w", err)
-	}
-
-	fluxEngine, err := flux.NewEngine(context.Background(), wasmPath)
-	if err != nil {
-		return fmt.Errorf("failed to initialize flux engine: %w", err)
-	}
-	defer fluxEngine.Close(context.Background())
-	aggregator := flux.NewAggregator()
-
 	// Create channels
 	events := make(chan models.Event, 100)
-	hsiRecords := make(chan []byte, 10)
+	records := make(chan []byte, 10)
 
 	// Setup context with cancellation
 	ctx, cancel := context.WithCancel(context.Background())
@@ -126,25 +129,26 @@ func runRecord(cmd *cobra.Command, args []string) error {
 	fmt.Printf("Output:     %s\n", recordOut)
 	fmt.Printf("Seed:       %d\n", recordSeed)
 	fmt.Printf("Vendor:     %s\n", recordVendor)
+	fmt.Printf("Flux:       %v\n", recordFlux)
 	fmt.Printf("Run ID:     %s\n\n", gen.GetRunID())
 
 	eventCount := 0
 	progressCallback := func() {
-		eventCount++ // internal counter increments
+		eventCount++
 		if eventCount%1000 == 0 {
-			fmt.Printf("\rRecorded %d events...", eventCount)
+			fmt.Printf("\rRecorded %d entries...", eventCount)
 		}
 	}
-	// Start recording HSI
+	// Start recording
 	go func() {
-		if err := rec.RecordFromChannel(ctx, hsiRecords, progressCallback); err != nil && err != context.Canceled {
+		if err := rec.RecordFromChannel(ctx, records, progressCallback); err != nil && err != context.Canceled {
 			log.Printf("Recording error: %v", err)
 		}
 	}()
 
 	// Start transformation loop
 	go func() {
-		defer close(hsiRecords)
+		defer close(records)
 		for {
 			select {
 			case <-ctx.Done():
@@ -157,22 +161,27 @@ func runRecord(cmd *cobra.Command, args []string) error {
 				if aggregator.Count() >= 20 {
 					var payload string
 					var err error
-					var hsi string
 
-					switch recordVendor {
-					case "garmin":
+					if recordVendor == "garmin" {
 						payload, err = aggregator.ToGarminJSON()
-						if err == nil {
-							hsi, err = fluxEngine.GarminToHSI(ctx, payload, "UTC", "mock-watch-01")
-						}
-					default:
+					} else {
 						payload, err = aggregator.ToWhoopJSON()
-						if err == nil {
-							hsi, err = fluxEngine.WhoopToHSI(ctx, payload, "UTC", "mock-watch-01")
-						}
 					}
+
 					if err == nil {
-						hsiRecords <- []byte(hsi)
+						if recordFlux {
+							var hsi string
+							if recordVendor == "garmin" {
+								hsi, err = fluxEngine.GarminToHSI(ctx, payload, "UTC", "mock-watch-01")
+							} else {
+								hsi, err = fluxEngine.WhoopToHSI(ctx, payload, "UTC", "mock-watch-01")
+							}
+							if err == nil {
+								records <- []byte(hsi)
+							}
+						} else {
+							records <- []byte(payload)
+						}
 					}
 					aggregator.Clear()
 				}
@@ -194,6 +203,6 @@ func runRecord(cmd *cobra.Command, args []string) error {
 	close(events)
 	time.Sleep(100 * time.Millisecond) // Let recording finish
 
-	fmt.Printf("\n\n✅ Recording complete: %d HSI records saved to %s\n", eventCount, recordOut)
+	fmt.Printf("\n\n✅ Recording complete: %s\n", recordOut)
 	return nil
 }

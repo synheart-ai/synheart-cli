@@ -28,6 +28,7 @@ var (
 	startRate     string
 	startSeed     int64
 	startOut      string
+	startFlux     bool
 	startFluxVerbose bool
 	startVendor   string
 )
@@ -35,7 +36,7 @@ var (
 var startCmd = &cobra.Command{
 	Use:   "start",
 	Short: "Start generating and broadcasting HSI events",
-	Long: `Starts generating raw sensor events, transforms them into HSI using the Flux engine, and broadcasts HSI records over network protocols.`,
+	Long: `Starts generating raw sensor events, transforms them into HSI (optional) or raw vendor data, and broadcasts over network protocols.`,
 	RunE: runStart,
 }
 
@@ -47,8 +48,9 @@ func init() {
 	startCmd.Flags().StringVar(&startRate, "rate", "50hz", "Global tick rate")
 	startCmd.Flags().Int64Var(&startSeed, "seed", time.Now().UnixNano(), "Random seed for deterministic output")
 	startCmd.Flags().StringVar(&startOut, "out", "", "Record events to file")
+	startCmd.Flags().BoolVar(&startFlux, "flux", false, "Enable Synheart Flux Wasm transformation (defaults to raw vendor JSON)")
 	startCmd.Flags().BoolVar(&startFluxVerbose, "flux-verbose", false, "Log raw vendor data before Flux transformation")
-	startCmd.Flags().StringVar(&startVendor, "vendor", "whoop", "Vendor data format for Flux: whoop|garmin")
+	startCmd.Flags().StringVar(&startVendor, "vendor", "whoop", "Vendor data format: whoop|garmin")
 }
 
 func runStart(cmd *cobra.Command, args []string) error {
@@ -100,23 +102,28 @@ func runStart(cmd *cobra.Command, args []string) error {
 	// Create UDP server
 	udp := transport.NewUDPServer(startHost, startPort+2)
 
-	// Setup Flux Engine (Primary HSI Engine)
-	wasmPath := filepath.Join("bin", "synheart_flux.wasm")
-	if _, err := os.Stat(wasmPath); err != nil {
-		return fmt.Errorf("flux wasm not found (run 'make build' first): %w", err)
+	// Setup Flux Engine (Optional HSI Engine)
+	var fluxEngine *flux.Engine
+	if startFlux {
+		wasmPath := filepath.Join("bin", "synheart_flux.wasm")
+		if _, err := os.Stat(wasmPath); err != nil {
+			return fmt.Errorf("flux wasm not found (run 'make build' first): %w", err)
+		}
+
+		var err error
+		fluxEngine, err = flux.NewEngine(context.Background(), wasmPath)
+		if err != nil {
+			return fmt.Errorf("failed to initialize flux engine: %w", err)
+		}
+		defer fluxEngine.Close(context.Background())
+		fmt.Printf("✨ Flux Engine initialized (Wasm: %s)\n", wasmPath)
 	}
 
-	fluxEngine, err := flux.NewEngine(context.Background(), wasmPath)
-	if err != nil {
-		return fmt.Errorf("failed to initialize flux engine: %w", err)
-	}
-	defer fluxEngine.Close(context.Background())
 	aggregator := flux.NewAggregator()
-	fmt.Printf("✨ Flux Engine initialized (Wasm: %s)\n", wasmPath)
 
-	// Create HSI record channel (Dispatcher source)
-	hsiRecords := make(chan []byte, 10)
-	dispatcher := transport.NewDispatcher(hsiRecords, 100)
+	// Create HSI/Vendor record channel (Dispatcher source)
+	records := make(chan []byte, 10)
+	dispatcher := transport.NewDispatcher(records, 100)
 
 	// Setup context with cancellation
 	ctx, cancel := context.WithCancel(context.Background())
@@ -163,10 +170,11 @@ func runStart(cmd *cobra.Command, args []string) error {
 	fmt.Printf("SSE:          %s\n", sse.GetAddress())
 	fmt.Printf("UDP:          %s\n", udp.GetAddress())
 	fmt.Printf("Vendor:       %s\n", startVendor)
+	fmt.Printf("Flux Enabled: %v\n", startFlux)
 	fmt.Printf("Seed:         %d\n", startSeed)
 	fmt.Printf("Run ID:       %s\n\n", gen.GetRunID())
 
-	// dispatch HSI records to network servers
+	// dispatch records to network servers
 	wsEvents := dispatcher.Subscribe()
 	go func() {
 		if err := wsServer.BroadcastFromChannel(ctx, wsEvents); err != nil && err != context.Canceled {
@@ -190,6 +198,7 @@ func runStart(cmd *cobra.Command, args []string) error {
 
 	var rec *recorder.Recorder
 	if startOut != "" {
+		var err error
 		rec, err = recorder.NewRecorder(startOut)
 		if err != nil {
 			return fmt.Errorf("failed to create recorder: %w", err)
@@ -208,9 +217,9 @@ func runStart(cmd *cobra.Command, args []string) error {
 
 	go dispatcher.Run(ctx)
 
-	// Internal processing loop: Sensors -> Aggregator -> Flux -> Dispatcher
+	// Internal processing loop: Sensors -> Aggregator -> (Flux) -> Dispatcher
 	go func() {
-		defer close(hsiRecords)
+		defer close(records)
 		for {
 			select {
 			case <-ctx.Done():
@@ -225,31 +234,39 @@ func runStart(cmd *cobra.Command, args []string) error {
 				if aggregator.Count() >= 20 {
 					var payload string
 					var err error
-					var hsi string
 
-					switch startVendor {
-					case "garmin":
+					if startVendor == "garmin" {
 						payload, err = aggregator.ToGarminJSON()
-						if err == nil {
-							hsi, err = fluxEngine.GarminToHSI(ctx, payload, "UTC", "mock-watch-01")
-						}
-					default: // whoop
+					} else {
 						payload, err = aggregator.ToWhoopJSON()
-						if err == nil {
-							hsi, err = fluxEngine.WhoopToHSI(ctx, payload, "UTC", "mock-watch-01")
-						}
 					}
 
 					if err != nil {
-						log.Printf("Flux transformation error: %v", err)
+						log.Printf("Aggregation error: %v", err)
 					} else {
 						if startFluxVerbose {
 							ui.Printf("\n%s\n", ui.bold(fmt.Sprintf("--- Raw %s JSON ---", strings.ToUpper(startVendor))))
 							ui.Printf("%s\n\n", payload)
 						}
 
-						// Send to all transports
-						hsiRecords <- []byte(hsi)
+						if startFlux {
+							// Transform to HSI using Flux
+							var hsi string
+							if startVendor == "garmin" {
+								hsi, err = fluxEngine.GarminToHSI(ctx, payload, "UTC", "mock-watch-01")
+							} else {
+								hsi, err = fluxEngine.WhoopToHSI(ctx, payload, "UTC", "mock-watch-01")
+							}
+
+							if err == nil {
+								records <- []byte(hsi)
+							} else {
+								log.Printf("Flux transformation error: %v", err)
+							}
+						} else {
+							// Broadcast pure wearable sensor data (vendor format)
+							records <- []byte(payload)
+						}
 					}
 					aggregator.Clear()
 				}

@@ -11,8 +11,8 @@ Synheart CLI generates realistic wearable sensor data and transforms it into hig
 Synheart CLI follows a modern transformation pipeline:
 1.  **Sensor Generator**: Produces raw signals (Heart Rate, HRV, Accelerometer, etc.) based on scripted scenarios.
 2.  **Vendor Aggregator**: Maps raw signals into vendor-specific payloads (e.g., Whoop or Garmin structures).
-3.  **Flux Engine (Wasm)**: Transforms vendor payloads into high-fidelity HSI-compliant records.
-4.  **Broadcaster**: Streams the final HSI JSON records over WebSocket, Server-Sent Events (SSE), and UDP.
+3.  **Flux Engine (Optional)**: If `--flux` is provided, transforms vendor payloads into high-fidelity HSI-compliant records.
+4.  **Broadcaster**: Streams either the raw vendor JSON or the Flux-generated HSI records over network protocols.
 
 ## Features
 
@@ -41,7 +41,7 @@ make install
 
 ## Quick Start
 
-Start the mock server with default settings (Whoop format):
+Start the mock server with default settings (streams raw Whoop-formatted data):
 
 ```bash
 synheart mock start
@@ -49,8 +49,13 @@ synheart mock start
 
 This will:
 - Generate sensor data for the `baseline` scenario.
-- Transform it into HSI using Flux.
+- Aggregate it into Whoop JSON format.
 - Start a WebSocket server on `ws://127.0.0.1:8787/hsi`.
+
+To enable **HSI computation** via Flux:
+```bash
+synheart mock start --flux
+```
 
 Connect to the stream from your SDK:
 
@@ -66,24 +71,25 @@ ws.onmessage = (event) => {
 
 ### `synheart mock start`
 
-Start generating and broadcasting real-time HSI data.
+Start generating and broadcasting real-time sensor data.
 
 ```bash
-# Basic usage (Whoop)
+# Basic usage: streams raw Whoop-formatted JSON
 synheart mock start
 
-# Use Garmin data format
+# Enable HSI transformation via Flux
+synheart mock start --flux
+
+# Use Garmin data format instead
 synheart mock start --vendor garmin
 
-# Debug: See raw vendor JSON before Flux transformation
+# Debug: See raw vendor JSON before Flux/Broadcast
 synheart mock start --flux-verbose
-
-# Custom duration and scenario
-synheart mock start --scenario workout --duration 10m
 ```
 
 **Flags:**
 - `--vendor` - Vendor format: `whoop` | `garmin` (default: `whoop`)
+- `--flux` - Enable Synheart Flux Wasm transformation to generate HSI
 - `--flux-verbose` - Log raw vendor JSON before transformation
 - `--scenario` - Scenario to run (default: `baseline`)
 - `--duration` - Duration to run (e.g., `5m`, `1h`)
@@ -91,10 +97,14 @@ synheart mock start --scenario workout --duration 10m
 
 ### `synheart mock record`
 
-Record Flux-generated HSI records to an NDJSON file.
+Record generated HSI records or raw wearable sensor signals to an NDJSON file.
 
 ```bash
+# Record raw Whoop-formatted signals
 synheart mock record --out session.ndjson --vendor whoop
+
+# Record Flux-generated HSI records
+synheart mock record --out hsi_session.ndjson --flux
 ```
 
 ### `synheart mock replay`
