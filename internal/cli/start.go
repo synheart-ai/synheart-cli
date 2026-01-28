@@ -20,23 +20,23 @@ import (
 )
 
 var (
-	startHost     string
-	startPort     int
-	startScenario string
-	startDuration string
-	startRate     string
-	startSeed     int64
-	startOut      string
-	startFlux     bool
+	startHost        string
+	startPort        int
+	startScenario    string
+	startDuration    string
+	startRate        string
+	startSeed        int64
+	startOut         string
+	startFlux        bool
 	startFluxVerbose bool
-	startVendor   string
+	startVendor      string
 )
 
 var startCmd = &cobra.Command{
 	Use:   "start",
 	Short: "Start generating and broadcasting sensor data",
-	Long: `Starts generating raw sensor events, aggregates them into vendor-specific payloads, and optionally transforms them into HSI using the Flux engine.`,
-	RunE: runStart,
+	Long:  `Starts generating raw sensor events, aggregates them into vendor-specific payloads, and optionally transforms them into HSI using the Flux engine.`,
+	RunE:  runStart,
 }
 
 func init() {
@@ -130,9 +130,21 @@ func runStart(cmd *cobra.Command, args []string) error {
 	}()
 
 	// Start servers
-	go func() { if err := wsServer.Start(ctx); err != nil && err != context.Canceled { log.Printf("WS error: %v", err) } }()
-	go func() { if err := sse.Start(ctx); err != nil && err != context.Canceled { log.Printf("SSE error: %v", err) } }()
-	go func() { if err := udp.Start(ctx); err != nil && err != context.Canceled { log.Printf("UDP error: %v", err) } }()
+	go func() {
+		if err := wsServer.Start(ctx); err != nil && err != context.Canceled {
+			log.Printf("WS error: %v", err)
+		}
+	}()
+	go func() {
+		if err := sse.Start(ctx); err != nil && err != context.Canceled {
+			log.Printf("SSE error: %v", err)
+		}
+	}()
+	go func() {
+		if err := udp.Start(ctx); err != nil && err != context.Canceled {
+			log.Printf("UDP error: %v", err)
+		}
+	}()
 
 	time.Sleep(200 * time.Millisecond)
 
@@ -167,7 +179,9 @@ func runStart(cmd *cobra.Command, args []string) error {
 			case <-ctx.Done():
 				return
 			case payload, ok := <-vendorPayloads:
-				if !ok { return }
+				if !ok {
+					return
+				}
 
 				if startFluxVerbose {
 					ui := NewUI(os.Stdout, os.Stderr, false, false, false)
@@ -203,7 +217,7 @@ func runStart(cmd *cobra.Command, args []string) error {
 	}
 
 	close(vendorPayloads)
-	
+
 	fmt.Println("\nShutdown complete")
 	return nil
 }

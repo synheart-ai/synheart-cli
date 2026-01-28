@@ -238,8 +238,10 @@ func TestDispatcher_GetSubscriberCount(t *testing.T) {
 	go dispatcher.Run(ctx)
 	time.Sleep(10 * time.Millisecond)
 
-	for range sub1 {}
-	for range sub2 {}
+	for range sub1 {
+	}
+	for range sub2 {
+	}
 }
 
 func TestDispatcher_GetDroppedCount(t *testing.T) {
@@ -268,7 +270,8 @@ func TestDispatcher_GetDroppedCount(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		for range sub {}
+		for range sub {
+		}
 	}()
 
 	time.Sleep(10 * time.Millisecond)

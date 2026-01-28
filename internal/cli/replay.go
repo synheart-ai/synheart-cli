@@ -15,11 +15,11 @@ import (
 )
 
 var (
-	replayIn     string
-	replaySpeed  float64
-	replayLoop   bool
-	replayHost   string
-	replayPort   int
+	replayIn    string
+	replaySpeed float64
+	replayLoop  bool
+	replayHost  string
+	replayPort  int
 )
 
 var replayCmd = &cobra.Command{

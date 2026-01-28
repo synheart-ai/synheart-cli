@@ -61,7 +61,7 @@ func (r *Replayer) replayOnce(ctx context.Context, output chan<- []byte) error {
 	for scanner.Scan() {
 		lineNum++
 		data := scanner.Bytes()
-		
+
 		// Attempt to extract timestamp for timing
 		timestamp := r.extractTimestamp(data)
 		if timestamp.IsZero() {

@@ -30,8 +30,8 @@ var (
 var recordCmd = &cobra.Command{
 	Use:   "record",
 	Short: "Record mock data to a file",
-	Long: `Generate and record HSI records or raw wearable sensor signals in vendor-specific formats (Whoop/Garmin) to an NDJSON file.`,
-	RunE: runRecord,
+	Long:  `Generate and record HSI records or raw wearable sensor signals in vendor-specific formats (Whoop/Garmin) to an NDJSON file.`,
+	RunE:  runRecord,
 }
 
 func init() {
@@ -135,7 +135,9 @@ func runRecord(cmd *cobra.Command, args []string) error {
 			case <-ctx.Done():
 				return
 			case payload, ok := <-vendorPayloads:
-				if !ok { return }
+				if !ok {
+					return
+				}
 				if recordFlux {
 					var hsi string
 					var err error
