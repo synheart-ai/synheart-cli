@@ -21,6 +21,7 @@ type Generator struct {
 	signals     map[string]SignalGenerator
 	signalRates map[string]time.Duration
 	lastEmit    map[string]time.Time
+	vendor      string
 }
 
 // Config holds generator configuration
@@ -30,6 +31,7 @@ type Config struct {
 	SourceType  string
 	SourceID    string
 	SourceSide  *string
+	Vendor      string // "whoop" or "garmin"
 }
 
 // NewGenerator creates a new event generator
@@ -56,15 +58,19 @@ func NewGenerator(engine *scenario.Engine, config Config) *Generator {
 		signals:     GetAllSignals(),
 		signalRates: make(map[string]time.Duration),
 		lastEmit:    make(map[string]time.Time),
+		vendor:      config.Vendor,
 	}
 }
 
-// Generate produces events at the specified tick rate
-func (g *Generator) Generate(ctx context.Context, ticker *time.Ticker, output chan<- models.Event) error {
+// Generate produces events and optionally vendor records
+func (g *Generator) Generate(ctx context.Context, ticker *time.Ticker, events chan<- models.Event, records chan<- []byte) error {
 	now := time.Now()
 	for signalName := range g.signals {
-		g.lastEmit[signalName] = now
+		// Initialize with a time in the past to trigger immediately on first tick
+		g.lastEmit[signalName] = now.Add(-10 * time.Minute)
 	}
+
+	aggregator := NewAggregator()
 
 	for {
 		select {
@@ -75,12 +81,38 @@ func (g *Generator) Generate(ctx context.Context, ticker *time.Ticker, output ch
 				return nil
 			}
 
-			events := g.generateTick()
-			for _, event := range events {
-				select {
-				case output <- event:
-				case <-ctx.Done():
-					return ctx.Err()
+			tickEvents := g.generateTick()
+			for _, event := range tickEvents {
+				// Send to events channel if provided (non-blocking to prevent generator hang)
+				if events != nil {
+					select {
+					case events <- event:
+					default:
+						// Buffer full, dropping event to maintain real-time generation
+					}
+				}
+
+				// Handle vendor aggregation (if records channel is provided)
+				if records != nil {
+					aggregator.Add(event)
+					if aggregator.Count() >= 10 {
+						var payload string
+						var err error
+						if g.vendor == "garmin" {
+							payload, err = aggregator.ToGarminJSON()
+						} else {
+							payload, err = aggregator.ToWhoopJSON()
+						}
+
+						if err == nil {
+							select {
+							case records <- []byte(payload):
+							case <-ctx.Done():
+								return ctx.Err()
+							}
+						}
+						aggregator.Clear()
+					}
 				}
 			}
 		}

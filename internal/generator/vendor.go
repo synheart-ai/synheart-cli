@@ -1,4 +1,4 @@
-package flux
+package generator
 
 import (
 	"encoding/json"
