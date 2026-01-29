@@ -2,6 +2,7 @@ package flux
 
 import (
 	"context"
+	_ "embed"
 	"fmt"
 	"os"
 
@@ -10,17 +11,17 @@ import (
 	"github.com/tetratelabs/wazero/imports/wasi_snapshot_preview1"
 )
 
+//go:embed synheart_flux.wasm
+var fluxWasm []byte
+
 type Engine struct {
 	runtime wazero.Runtime
 	module  api.Module
 	ptr     uint32 // FluxProcessorHandle pointer
 }
 
-func NewEngine(ctx context.Context, wasmPath string) (*Engine, error) {
-	wasmBytes, err := os.ReadFile(wasmPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read wasm file: %w", err)
-	}
+func NewEngine(ctx context.Context) (*Engine, error) {
+	wasmBytes := fluxWasm
 
 	r := wazero.NewRuntime(ctx)
 

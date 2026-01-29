@@ -1,17 +1,13 @@
-.PHONY: build install test clean proto flux-wasm
+.PHONY: build install test clean proto
 
 VERSION ?= 0.0.1
 COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo dev)
 
 LDFLAGS := -X github.com/synheart/synheart-cli/internal/cli.Version=$(VERSION) -X github.com/synheart/synheart-cli/internal/cli.Commit=$(COMMIT)
 
-build: flux-wasm
+build:
 	go build -ldflags "$(LDFLAGS)" -o bin/synheart cmd/synheart/main.go
 
-flux-wasm:
-	mkdir -p bin
-	cd ../synheart-flux && cargo build --target wasm32-wasip1 --release
-	cp ../synheart-flux/target/wasm32-wasip1/release/synheart_flux.wasm bin/
 
 install:
 	go install -ldflags "$(LDFLAGS)" ./cmd/synheart

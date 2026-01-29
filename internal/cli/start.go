@@ -6,7 +6,6 @@ import (
 	"log"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -91,17 +90,13 @@ func runStart(cmd *cobra.Command, args []string) error {
 	// Setup Flux Engine (Optional HSI Engine)
 	var fluxEngine *flux.Engine
 	if startFlux {
-		wasmPath := filepath.Join("bin", "synheart_flux.wasm")
-		if _, err := os.Stat(wasmPath); err != nil {
-			return fmt.Errorf("flux wasm not found (run 'make build' first): %w", err)
-		}
-
-		fluxEngine, err = flux.NewEngine(context.Background(), wasmPath)
+		var err error
+		fluxEngine, err = flux.NewEngine(context.Background())
 		if err != nil {
 			return fmt.Errorf("failed to initialize flux engine: %w", err)
 		}
 		defer fluxEngine.Close(context.Background())
-		fmt.Printf("✨ Flux Engine initialized (Wasm: %s)\n", wasmPath)
+		fmt.Println("✨ Flux Engine initialized (Embedded Wasm)")
 	}
 
 	// Create channels
