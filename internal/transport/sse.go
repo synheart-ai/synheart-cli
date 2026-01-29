@@ -6,27 +6,22 @@ import (
 	"log"
 	"net/http"
 	"sync"
-
-	"github.com/synheart/synheart-cli/internal/encoding"
-	"github.com/synheart/synheart-cli/internal/models"
 )
 
 // SSEServer broadcasts events via Server-Sent Events
 type SSEServer struct {
 	host    string
 	port    int
-	encoder encoding.Encoder
 	clients map[chan []byte]bool
 	mu      sync.RWMutex
 	server  *http.Server
 }
 
 // NewSSEServer creates a new SSE server
-func NewSSEServer(host string, port int, encoder encoding.Encoder) *SSEServer {
+func NewSSEServer(host string, port int) *SSEServer {
 	return &SSEServer{
 		host:    host,
 		port:    port,
-		encoder: encoder,
 		clients: make(map[chan []byte]bool),
 	}
 }
@@ -44,7 +39,6 @@ func (s *SSEServer) Start(ctx context.Context) error {
 
 	errCh := make(chan error, 1)
 	go func() {
-		log.Printf("SSE server listening on http://%s:%d/hsi/sse", s.host, s.port)
 		if err := s.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			errCh <- err
 		}
@@ -115,16 +109,10 @@ func (s *SSEServer) removeClient(ch chan []byte) {
 	}
 }
 
-// Broadcast sends an event to all connected clients
-func (s *SSEServer) Broadcast(event models.Event) error {
+// Broadcast sends data to all connected clients
+func (s *SSEServer) Broadcast(data []byte) error {
 	if s.GetClientCount() == 0 {
 		return nil
-	}
-
-	data, err := s.encoder.Encode(event)
-	if err != nil {
-		return fmt.Errorf("failed to encode event: %w", err)
-
 	}
 
 	s.mu.RLock()
@@ -139,17 +127,17 @@ func (s *SSEServer) Broadcast(event models.Event) error {
 	return nil
 }
 
-// BroadcastFromChannel reads events and broadcasts them
-func (s *SSEServer) BroadcastFromChannel(ctx context.Context, events <-chan models.Event) error {
+// BroadcastFromChannel reads data from a channel and broadcasts it
+func (s *SSEServer) BroadcastFromChannel(ctx context.Context, dataStream <-chan []byte) error {
 	for {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case event, ok := <-events:
+		case data, ok := <-dataStream:
 			if !ok {
 				return nil
 			}
-			if err := s.Broadcast(event); err != nil {
+			if err := s.Broadcast(data); err != nil {
 				log.Printf("Broadcast error: %v", err)
 			}
 		}

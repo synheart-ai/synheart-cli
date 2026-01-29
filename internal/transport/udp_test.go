@@ -6,13 +6,10 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/synheart/synheart-cli/internal/encoding"
-	"github.com/synheart/synheart-cli/internal/models"
 )
 
 func TestUDPServer_Broadcast(t *testing.T) {
-	server := NewUDPServer("127.0.0.1", 19878, encoding.NewJSONEncoder())
+	server := NewUDPServer("127.0.0.1", 19878)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -34,12 +31,7 @@ func TestUDPServer_Broadcast(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	// Broadcast
-	event := models.Event{
-		SchemaVersion: "hsi.input.v1",
-		EventID:       "udp-test-1",
-		Signal:        models.Signal{Name: "udp.signal", Value: 99.0},
-	}
-	server.Broadcast(event)
+	server.Broadcast([]byte(`{"test":"udp-data"}`))
 
 	// Receive
 	buf := make([]byte, 2048)
@@ -49,13 +41,13 @@ func TestUDPServer_Broadcast(t *testing.T) {
 		t.Fatalf("failed to receive: %v", err)
 	}
 
-	if !strings.Contains(string(buf[:n]), "udp.signal") {
+	if !strings.Contains(string(buf[:n]), "udp-data") {
 		t.Errorf("expected event data, got: %s", string(buf[:n]))
 	}
 }
 
 func TestUDPServer_ClientCount(t *testing.T) {
-	server := NewUDPServer("127.0.0.1", 19879, encoding.NewJSONEncoder())
+	server := NewUDPServer("127.0.0.1", 19879)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -88,7 +80,7 @@ func TestUDPServer_ClientCount(t *testing.T) {
 }
 
 func TestUDPServer_Address(t *testing.T) {
-	server := NewUDPServer("127.0.0.1", 9999, encoding.NewJSONEncoder())
+	server := NewUDPServer("127.0.0.1", 9999)
 	addr := server.GetAddress()
 	if addr != "udp://127.0.0.1:9999" {
 		t.Errorf("wrong address: %s", addr)

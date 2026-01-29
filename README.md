@@ -1,142 +1,69 @@
 # Synheart CLI
-
-**Local HSI Mock Data Generator & Broadcaster for SDK Development**
+**HSI Mock Data Generator & Broadcaster**
 
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 [![Go Version](https://img.shields.io/github/go-mod/go-version/synheart-ai/synheart-cli)](go.mod)
-[![CI](https://github.com/synheart-ai/synheart-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/synheart-ai/synheart-cli/actions/workflows/ci.yml)
-[![Latest Release](https://img.shields.io/github/v/release/synheart-ai/synheart-cli)](https://github.com/synheart-ai/synheart-cli/releases)
 
-Synheart CLI generates HSI-compatible sensor data streams that mimic phone + wearable sources, eliminating dependency on physical devices during development.
+Synheart CLI generates realistic wearable sensor data and transforms it into high-fidelity **HSI (Human State Indicators)** using the integrated **Flux** compute engine (via WebAssembly). It eliminates the dependency on physical devices during HSI-aware application development.
 
-Changelog: see [`CHANGELOG.md`](CHANGELOG.md).
+## Architecture
+
+Synheart CLI follows a modern transformation pipeline:
+1.  **Sensor Generator**: Produces raw signals (Heart Rate, HRV, Accelerometer, etc.) based on scripted scenarios.
+2.  **Vendor Aggregator**: Maps raw signals into vendor-specific payloads (e.g., Whoop or Garmin structures).
+3.  **Flux Engine (Optional)**: If `--flux` is provided, transforms vendor payloads into high-fidelity HSI-compliant records.
+4.  **Broadcaster**: Streams either the raw vendor JSON or the Flux-generated HSI records over network protocols.
 
 ## Features
 
-- 🎯 **Mock HSI Data Streams**: Generate realistic sensor data without physical devices
-- 🔄 **Multiple Scenarios**: Baseline, focus session, stress spike, and more
-- 🌐 **WebSocket Broadcasting**: Real-time data streaming on localhost
-- 📼 **Record & Replay**: Capture sessions for reproducible testing
-- 🎲 **Deterministic Mode**: Use seeds for consistent, repeatable data generation
-- 📥 **Receiver Mode**: Local HTTP server to receive HSI exports from Synheart Life app
-- 🛠️ **Developer Friendly**: Simple CLI, clear documentation, easy SDK integration
+- 🧠 **Integrated Flux Engine**: Real-time HSI computation powered by the official Synheart Flux Wasm module.
+- ⌚ **Vendor-Fidelity**: Support for generating state-of-the-art Whoop or Garmin formatted data.
+- 🔄 **Multiple Scenarios**: Baseline, workout, focus session, and more.
+- 🌐 **Multi-Transport**: Broadcast HSI over WebSocket, SSE, and UDP.
+- CAPTURE **Record & Replay**: Capture Flux-generated HSI sessions for reproducible testing.
 
 ## Installation
 
 ### Prerequisites
 
 - Go 1.24 or later
+- Rust (only if building the Flux Wasm module yourself)
 
-### Install Globally (Recommended)
-
-Install the CLI to make it available system-wide:
+### Build and Install
 
 ```bash
 git clone https://github.com/synheart-ai/synheart-cli
 cd synheart-cli
+# This will build the Rust Flux module and the Go CLI
+make build
 make install
 ```
 
-This installs the binary to `$GOPATH/bin` (typically `$HOME/go/bin`).
-
-**Ensure Go's bin directory is in your PATH:**
-
-Add this line to your `~/.zshrc`, `~/.bashrc`, or `~/.bash_profile`:
-
-```bash
-export PATH="$PATH:$HOME/go/bin"
-```
-
-Then reload your shell configuration:
-
-```bash
-source ~/.zshrc  # or ~/.bashrc
-```
-
-**Verify installation:**
-
-```bash
-synheart version
-```
-
-### Shell Completion (Recommended)
-
-Generate and load completions for your shell:
-
-```bash
-# Zsh
-mkdir -p ~/.zsh/completions
-synheart completion zsh > ~/.zsh/completions/_synheart
-```
-
-```bash
-# Bash
-mkdir -p ~/.bash_completion.d
-synheart completion bash > ~/.bash_completion.d/synheart
-```
-
-Or let `make install` handle it:
-
-```bash
-make install INSTALL_COMPLETIONS=zsh
-```
-
-### Build Locally (Development)
-
-To build without installing globally:
-
-```bash
-make build
-```
-
-To build with release metadata (injects version + git commit into `synheart version`):
-
-```bash
-make build VERSION=0.0.1
-```
-
-The binary will be available at `bin/synheart`. Run it with:
-
-```bash
-./bin/synheart version
-```
-
-## Global Flags
-
-These flags apply to most commands:
-
-- `--format text|json` (default: `text`) — JSON is supported by `version`, `doctor`, `mock list-scenarios`, and `mock describe`
-- `--no-color` — Disable colored output
-- `-q, --quiet` — Suppress non-essential output
-- `-v, --verbose` — Verbose logging
-- `--pprof` — Enable pprof HTTP server (live endpoints at `/debug/pprof`)
-- `--pprof-addr <host:port>` — Address for pprof HTTP server (default: `127.0.0.1:6060`)
-- `--cpu-profile <path>` — Write CPU profile to file (stops on exit)
-- `--mem-profile <path>` — Write heap profile to file on exit
-- `--trace-profile <path>` — Write execution trace to file
-- `--block-profile-rate <n>` — Enable block profiling with given sampling rate (0 to disable)
-- `--mutex-profile-fraction <n>` — Enable mutex profiling with given fraction (0 to disable)
-
 ## Quick Start
 
-Start the mock server with default settings:
+Start the mock server with default settings (streams raw Whoop-formatted data):
 
 ```bash
 synheart mock start
 ```
 
 This will:
-- Generate baseline scenario data
-- Start WebSocket server on `ws://127.0.0.1:8787/hsi`
-- Broadcast events to all connected clients
+- Generate sensor data for the `baseline` scenario.
+- Aggregate it into Whoop JSON format.
+- Start a WebSocket server on `ws://127.0.0.1:8787/hsi`.
+
+To enable **HSI computation** via Flux:
+```bash
+synheart mock start --flux
+```
 
 Connect to the stream from your SDK:
 
 ```javascript
 const ws = new WebSocket('ws://localhost:8787/hsi');
 ws.onmessage = (event) => {
-  const data = JSON.parse(event.data);
-  console.log(data);
+  const hsiRecord = JSON.parse(event.data);
+  console.log('New HSI record received:', hsiRecord);
 };
 ```
 
@@ -144,408 +71,83 @@ ws.onmessage = (event) => {
 
 ### `synheart mock start`
 
-Start generating and broadcasting HSI events.
+Start generating and broadcasting real-time sensor data.
 
 ```bash
-# Basic usage
+# Basic usage: streams raw Whoop-formatted JSON
 synheart mock start
 
-# With specific scenario
-synheart mock start --scenario stress_spike
+# Enable HSI transformation via Flux
+synheart mock start --flux
 
-# Deterministic output with seed
-synheart mock start --scenario focus_session --seed 42
+# Use Garmin data format instead
+synheart mock start --vendor garmin
 
-# Custom port and duration
-synheart mock start --port 9000 --duration 5m
-
-# Record to file while broadcasting
-synheart mock start --scenario workout --out workout.ndjson
+# Debug: See raw vendor JSON before Flux/Broadcast
+synheart mock start --flux-verbose
 ```
 
 **Flags:**
-- `--host` - Host to bind to (default: `127.0.0.1`)
-- `--port` - Port to listen on (default: `8787`)
+- `--vendor` - Vendor format: `whoop` | `garmin` (default: `whoop`)
+- `--flux` - Enable Synheart Flux Wasm transformation to generate HSI
+- `--flux-verbose` - Log raw vendor JSON before transformation
 - `--scenario` - Scenario to run (default: `baseline`)
 - `--duration` - Duration to run (e.g., `5m`, `1h`)
-- `--rate` - Global tick rate (default: `50hz`)
-- `--seed` - Random seed for deterministic output
-- `--out` - Record events to file (NDJSON format)
+- `--port` - Base port for WebSocket (SSE is port+1, UDP is port+2)
 
 ### `synheart mock record`
 
-Record mock data to an NDJSON file.
+Record generated HSI records or raw wearable sensor signals to an NDJSON file.
 
 ```bash
-synheart mock record --scenario workout --duration 15m --out workout.ndjson
-```
+# Record raw Whoop-formatted signals
+synheart mock record --out session.ndjson --vendor whoop
 
-**Flags:**
-- `--scenario` - Scenario to run (default: `baseline`)
-- `--duration` - Duration to record (default: `5m`)
-- `--out` - Output file (required)
-- `--seed` - Random seed for deterministic output
-- `--rate` - Global tick rate (default: `50hz`)
+# Record Flux-generated HSI records
+synheart mock record --out hsi_session.ndjson --flux
+```
 
 ### `synheart mock replay`
 
-Replay events from a recorded file.
+Replay previously recorded HSI records over network transports with original timing.
 
 ```bash
-# Basic replay
-synheart mock replay --in workout.ndjson
-
-# Faster playback
-synheart mock replay --in workout.ndjson --speed 2.0
-
-# Loop continuously
-synheart mock replay --in workout.ndjson --loop
+synheart mock replay --in session.ndjson --speed 2.0
 ```
 
-**Flags:**
-- `--in` - Input file to replay (required)
-- `--speed` - Playback speed multiplier (default: `1.0`)
-- `--loop` - Loop playback continuously
-- `--host` - Host to bind to (default: `127.0.0.1`)
-- `--port` - Port to listen on (default: `8787`)
+## Event Schema (HSI 1.0)
 
-### `synheart mock list-scenarios`
-
-List all available scenarios.
-
-```bash
-synheart mock list-scenarios
-```
-
-### `synheart mock describe <scenario>`
-
-Show detailed information about a scenario.
-
-```bash
-synheart mock describe stress_spike
-```
-
-### `synheart receiver`
-
-Start a local HTTP server to receive HSI exports from the Synheart Life app.
-
-```bash
-# Basic usage (auto-generates token)
-synheart receiver
-
-# Custom port and explicit token
-synheart receiver --port 9000 --token mysecrettoken
-
-# Save exports to files
-synheart receiver --out ./exports
-
-# Accept gzip-compressed payloads
-synheart receiver --gzip
-
-# Output as NDJSON
-synheart receiver --format ndjson
-```
-
-**Flags:**
-- `--host` - Host address to bind to (default: `0.0.0.0`)
-- `--port` - Port to listen on (default: `8787`)
-- `--token` - Static bearer token (auto-generated if not provided)
-- `--out` - Directory to write received payloads (stdout if not set)
-- `--format` - Output format: `json` or `ndjson` (default: `json`)
-- `--gzip` - Accept gzip-compressed payloads
-
-**API Endpoint:** `POST /v1/hsi/import`
-
-**Required Headers:**
-- `Authorization: Bearer <token>`
-- `Content-Type: application/json`
-- `X-Synheart-Export-Id: <uuid>`
-
-**Response Codes:**
-- `200 OK` - Valid payload received
-- `400 Bad Request` - Invalid schema or JSON structure
-- `401 Unauthorized` - Token mismatch
-- `500 Internal Error` - Disk write failure
-
-### `synheart doctor`
-
-Check environment and print connection examples.
-
-```bash
-synheart doctor
-```
-
-Validates:
-- Scenarios directory exists
-- Default port availability
-- Provides SDK connection examples
-
-### `synheart version`
-
-Print version information.
-
-```bash
-synheart version
-```
-
-## Built-in Scenarios
-
-### `baseline`
-Normal day idle with minor variance. Suitable for testing basic SDK functionality.
-
-### `focus_session`
-Reduced motion, stable heart rate, screen on patterns. Simulates a 30-minute focused work session.
-
-### `stress_spike`
-Sudden heart rate increase, HRV drop, EDA spike followed by recovery. 8-minute scenario for testing stress detection.
-
-## Event Schema
-
-All events follow the HSI-compatible envelope format:
+Broadcasters emit high-fidelity HSI records computed by Flux:
 
 ```json
 {
-  "schema_version": "hsi.input.v1",
-  "event_id": "550e8400-e29b-41d4-a716-446655440000",
-  "ts": "2025-12-26T20:05:12.123Z",
-  "source": {
-    "type": "wearable",
-    "id": "mock-watch-01",
-    "side": "left"
-  },
-  "session": {
-    "run_id": "7c9e6679-7425-40de-944b-e07fc1f90ae7",
-    "scenario": "focus_session",
-    "seed": 42
-  },
-  "signal": {
-    "name": "ppg.hr_bpm",
-    "unit": "bpm",
-    "value": 72.4,
-    "quality": 0.93
-  },
-  "meta": {
-    "sequence": 12093
-  }
-}
-```
-
-## Supported Signals
-
-### Wearable Signals
-- `ppg.hr_bpm` - Heart rate (beats per minute)
-- `ppg.hrv_rmssd_ms` - Heart rate variability (milliseconds)
-- `accel.xyz_mps2` - 3D acceleration (m/s²)
-- `gyro.xyz_rps` - 3D gyroscope (rad/s)
-- `temp.skin_c` - Skin temperature (Celsius)
-- `eda.us` - Electrodermal activity (microsiemens)
-
-### Phone Signals
-- `screen.state` - Screen on/off state
-- `app.activity` - App foreground/background activity
-- `motion.activity` - Motion activity (still/walk/run)
-
-## SDK Integration Examples
-
-### JavaScript/Node.js
-
-```javascript
-const WebSocket = require('ws');
-
-const ws = new WebSocket('ws://localhost:8787/hsi');
-
-ws.on('message', (data) => {
-  const event = JSON.parse(data);
-  console.log(`${event.signal.name}: ${event.signal.value}`);
-});
-
-ws.on('error', (error) => {
-  console.error('WebSocket error:', error);
-});
-```
-
-### Python
-
-```python
-import websocket
-import json
-
-def on_message(ws, message):
-    event = json.loads(message)
-    print(f"{event['signal']['name']}: {event['signal']['value']}")
-
-def on_error(ws, error):
-    print(f"Error: {error}")
-
-ws = websocket.WebSocketApp(
-    "ws://localhost:8787/hsi",
-    on_message=on_message,
-    on_error=on_error
-)
-
-ws.run_forever()
-```
-
-### Go
-
-```go
-package main
-
-import (
-	"encoding/json"
-	"log"
-	"github.com/gorilla/websocket"
-)
-
-type Event struct {
-	Signal struct {
-		Name  string      `json:"name"`
-		Value interface{} `json:"value"`
-	} `json:"signal"`
-}
-
-func main() {
-	conn, _, err := websocket.DefaultDialer.Dial("ws://localhost:8787/hsi", nil)
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer conn.Close()
-
-	for {
-		_, message, err := conn.ReadMessage()
-		if err != nil {
-			log.Fatal(err)
-		}
-
-		var event Event
-		json.Unmarshal(message, &event)
-		log.Printf("%s: %v", event.Signal.Name, event.Signal.Value)
-	}
-}
-```
-
-### Rust
-
-```rust
-use tokio_tungstenite::{connect_async, tungstenite::Message};
-use futures_util::StreamExt;
-use serde_json::Value;
-
-#[tokio::main]
-async fn main() {
-    let (mut socket, _) = connect_async("ws://localhost:8787/hsi")
-        .await
-        .expect("Failed to connect");
-
-    while let Some(msg) = socket.next().await {
-        if let Ok(Message::Text(text)) = msg {
-            let event: Value = serde_json::from_str(&text).unwrap();
-            println!("{}: {}",
-                event["signal"]["name"].as_str().unwrap(),
-                event["signal"]["value"]
-            );
-        }
+  "hsi_version": "1.0.0",
+  "producer": { "name": "flux", "version": "0.1.0", ... },
+  "windows": [
+    {
+      "date": "2024-01-29",
+      "physiology": {
+        "hrv_rmssd_ms": 50.0,
+        "resting_hr_bpm": 60.0,
+        "recovery_score": 0.75
+      },
+      "activity": {
+        "strain_score": 0.45,
+        "calories": 2200.0
+      },
+      "sleep": {
+        "score": 0.85,
+        "efficiency": 0.94
+      }
     }
+  ]
 }
 ```
-
-## Development
-
-### Building
-
-```bash
-make build
-```
-
-### Running Tests
-
-```bash
-make test
-```
-
-### Cleaning
-
-```bash
-make clean
-```
-
-## Use Cases
-
-- **SDK Development**: Test HSI SDKs without physical wearables
-- **CI/CD**: Automated testing with deterministic data
-- **Demos**: Scripted scenarios that look realistic
-- **QA**: Reproducible test cases with seeded data
-- **Integration Testing**: Validate data pipelines locally
-- **Data Sovereignty**: Receive exports directly from Synheart Life without cloud dependency
-- **Research**: Collect and analyze personal HSI data locally
-
-## Recording Format
-
-Recordings use NDJSON (Newline Delimited JSON) format - one JSON object per line. This format is:
-- Streaming-friendly
-- Easy to parse
-- Human-readable
-- Compatible with standard tools
-
-Example:
-
-```
-{"schema_version":"hsi.input.v1","event_id":"...","ts":"2025-12-26T20:05:12.123Z",...}
-{"schema_version":"hsi.input.v1","event_id":"...","ts":"2025-12-26T20:05:12.143Z",...}
-{"schema_version":"hsi.input.v1","event_id":"...","ts":"2025-12-26T20:05:12.163Z",...}
-```
-
-## Security Notes
-
-- Mock server binds to `localhost` (127.0.0.1) by default
-- Only generates synthetic data, never real user data
-- Use `--host 0.0.0.0` with caution (exposes on LAN)
-- Receiver mode binds to `0.0.0.0` by default for LAN access from mobile devices
-- Receiver auto-generates secure bearer tokens for authentication
-- HSI exports never include raw text, keystrokes, or raw biosignal streams
-
-## Troubleshooting
-
-### Port already in use
-
-If port 8787 is already in use:
-
-```bash
-synheart mock start --port 9000
-```
-
-### Scenarios not found
-
-Ensure the `scenarios/` directory is in:
-1. Current working directory
-2. Same directory as the executable
-
-Use `synheart doctor` to check.
-
-### WebSocket connection refused
-
-Ensure the server is running and check firewall settings.
 
 ## Contributing
 
-Contributions welcome! Please open an issue or PR.
-
-## Roadmap
-
-See RFC document for planned Phase 2 and Phase 3 features:
-- Additional scenarios (workout, sleep, commute)
-- HTTP SSE and UDP transports
-- Control plane for runtime scenario switching
-- Custom scenario loading
-- Protobuf support
+Contributions welcome! Please open an issue or PR for new scenarios or vendor formats.
 
 ## License
 
 Apache License 2.0. See [`LICENSE`](LICENSE).
-
-## Patent Pending Notice
-
-This project is provided under an open-source license. Certain underlying systems, methods, and architectures described or implemented herein may be covered by one or more pending patent applications.
-
-Nothing in this repository grants any license, express or implied, to any patents or patent applications, except as provided by the applicable open-source license.
-

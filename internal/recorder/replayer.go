@@ -7,11 +7,9 @@ import (
 	"fmt"
 	"os"
 	"time"
-
-	"github.com/synheart/synheart-cli/internal/models"
 )
 
-// Replayer reads and replays events from an NDJSON file
+// Replayer reads and replays records from an NDJSON file
 type Replayer struct {
 	filename string
 	speed    float64
@@ -27,8 +25,8 @@ func NewReplayer(filename string, speed float64, loop bool) *Replayer {
 	}
 }
 
-// Replay reads events and sends them to the output channel with timing
-func (r *Replayer) Replay(ctx context.Context, output chan<- models.Event) error {
+// Replay reads records and sends them to the output channel with timing
+func (r *Replayer) Replay(ctx context.Context, output chan<- []byte) error {
 	for {
 		if err := r.replayOnce(ctx, output); err != nil {
 			return err
@@ -49,7 +47,7 @@ func (r *Replayer) Replay(ctx context.Context, output chan<- models.Event) error
 	return nil
 }
 
-func (r *Replayer) replayOnce(ctx context.Context, output chan<- models.Event) error {
+func (r *Replayer) replayOnce(ctx context.Context, output chan<- []byte) error {
 	file, err := os.Open(r.filename)
 	if err != nil {
 		return fmt.Errorf("failed to open recording file: %w", err)
@@ -62,44 +60,40 @@ func (r *Replayer) replayOnce(ctx context.Context, output chan<- models.Event) e
 
 	for scanner.Scan() {
 		lineNum++
+		data := scanner.Bytes()
 
-		var event models.Event
-		if err := json.Unmarshal(scanner.Bytes(), &event); err != nil {
-			return fmt.Errorf("failed to parse event at line %d: %w", lineNum, err)
-		}
-
-		// Parse timestamp
-		timestamp, err := time.Parse(time.RFC3339Nano, event.Timestamp)
-		if err != nil {
-			return fmt.Errorf("failed to parse timestamp at line %d: %w", lineNum, err)
-		}
-
-		// Calculate delay
-		if lineNum == 1 {
-			lastTimestamp = timestamp
-		} else {
-			delay := timestamp.Sub(lastTimestamp)
-			if r.speed != 1.0 {
-				delay = time.Duration(float64(delay) / r.speed)
+		// Attempt to extract timestamp for timing
+		timestamp := r.extractTimestamp(data)
+		if timestamp.IsZero() {
+			// Fallback: 100ms between records if no timestamp found
+			if lineNum > 1 {
+				time.Sleep(100 * time.Millisecond)
 			}
+		} else {
+			// Calculate delay
+			if !lastTimestamp.IsZero() {
+				delay := timestamp.Sub(lastTimestamp)
+				if r.speed != 1.0 {
+					delay = time.Duration(float64(delay) / r.speed)
+				}
 
-			// Wait for the delay
-			if delay > 0 {
-				select {
-				case <-ctx.Done():
-					return ctx.Err()
-				case <-time.After(delay):
+				// Wait for the delay
+				if delay > 0 {
+					select {
+					case <-ctx.Done():
+						return ctx.Err()
+					case <-time.After(delay):
+					}
 				}
 			}
-
 			lastTimestamp = timestamp
 		}
 
-		// Send event
+		// Send record
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case output <- event:
+		case output <- append([]byte(nil), data...):
 		}
 	}
 
@@ -110,7 +104,33 @@ func (r *Replayer) replayOnce(ctx context.Context, output chan<- models.Event) e
 	return nil
 }
 
-// CountEvents returns the number of events in the recording
+// extractTimestamp tries to find a timestamp in several known formats (Legacy Event, HSI 1.0)
+func (r *Replayer) extractTimestamp(data []byte) time.Time {
+	var m map[string]interface{}
+	if err := json.Unmarshal(data, &m); err != nil {
+		return time.Time{}
+	}
+
+	// Try legacy event format: "ts": "..."
+	if ts, ok := m["ts"].(string); ok {
+		if t, err := time.Parse(time.RFC3339Nano, ts); err == nil {
+			return t
+		}
+	}
+
+	// Try HSI 1.0 format: "provenance": { "observed_at_utc": "..." }
+	if prov, ok := m["provenance"].(map[string]interface{}); ok {
+		if ts, ok := prov["observed_at_utc"].(string); ok {
+			if t, err := time.Parse(time.RFC3339, ts); err == nil {
+				return t
+			}
+		}
+	}
+
+	return time.Time{}
+}
+
+// CountEvents returns the number of records in the recording
 func (r *Replayer) CountEvents() (int, error) {
 	file, err := os.Open(r.filename)
 	if err != nil {
@@ -131,8 +151,8 @@ func (r *Replayer) CountEvents() (int, error) {
 	return count, nil
 }
 
-// GetFirstEvent returns the first event in the recording
-func (r *Replayer) GetFirstEvent() (*models.Event, error) {
+// GetFirstRecordInfo returns the first record as a map for info display
+func (r *Replayer) GetFirstRecordInfo() (map[string]interface{}, error) {
 	file, err := os.Open(r.filename)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open recording file: %w", err)
@@ -144,10 +164,10 @@ func (r *Replayer) GetFirstEvent() (*models.Event, error) {
 		return nil, fmt.Errorf("recording file is empty")
 	}
 
-	var event models.Event
-	if err := json.Unmarshal(scanner.Bytes(), &event); err != nil {
-		return nil, fmt.Errorf("failed to parse first event: %w", err)
+	var m map[string]interface{}
+	if err := json.Unmarshal(scanner.Bytes(), &m); err != nil {
+		return nil, fmt.Errorf("failed to parse first record: %w", err)
 	}
 
-	return &event, nil
+	return m, nil
 }

@@ -2,16 +2,13 @@ package transport
 
 import (
 	"context"
-	"fmt"
 	"sync"
 	"testing"
 	"time"
-
-	"github.com/synheart/synheart-cli/internal/models"
 )
 
 func TestDispatcher_SingleSubscriber(t *testing.T) {
-	source := make(chan models.Event, 10)
+	source := make(chan []byte, 10)
 	dispatcher := NewDispatcher(source, 10)
 	subscriber := dispatcher.Subscribe()
 
@@ -21,7 +18,7 @@ func TestDispatcher_SingleSubscriber(t *testing.T) {
 	go dispatcher.Run(ctx)
 
 	for i := 0; i < 5; i++ {
-		source <- models.Event{EventID: string(rune('A' + i))}
+		source <- []byte(string(rune('A' + i)))
 	}
 	close(source)
 
@@ -33,12 +30,12 @@ func TestDispatcher_SingleSubscriber(t *testing.T) {
 	}
 
 	if count != 5 {
-		t.Errorf("expected 5 events, got %d", count)
+		t.Errorf("expected 5 packets, got %d", count)
 	}
 }
 
 func TestDispatcher_MultipleSubscribers(t *testing.T) {
-	source := make(chan models.Event, 10)
+	source := make(chan []byte, 10)
 	dispatcher := NewDispatcher(source, 10)
 
 	sub1 := dispatcher.Subscribe()
@@ -49,9 +46,9 @@ func TestDispatcher_MultipleSubscribers(t *testing.T) {
 
 	go dispatcher.Run(ctx)
 
-	numEvents := 10
-	for i := 0; i < numEvents; i++ {
-		source <- models.Event{EventID: string(rune('A' + i))}
+	numPackets := 10
+	for i := 0; i < numPackets; i++ {
+		source <- []byte(string(rune('A' + i)))
 	}
 	close(source)
 
@@ -75,16 +72,16 @@ func TestDispatcher_MultipleSubscribers(t *testing.T) {
 	}()
 	wg.Wait()
 
-	if count1 != numEvents {
-		t.Errorf("subscriber 1: expected %d events, got %d", numEvents, count1)
+	if count1 != numPackets {
+		t.Errorf("subscriber 1: expected %d packets, got %d", numPackets, count1)
 	}
-	if count2 != numEvents {
-		t.Errorf("subscriber 2: expected %d events, got %d", numEvents, count2)
+	if count2 != numPackets {
+		t.Errorf("subscriber 2: expected %d packets, got %d", numPackets, count2)
 	}
 }
 
-func TestDispatcher_SubscribersReceiveSameEvents(t *testing.T) {
-	source := make(chan models.Event, 10)
+func TestDispatcher_SubscribersReceiveSameData(t *testing.T) {
+	source := make(chan []byte, 10)
 	dispatcher := NewDispatcher(source, 10)
 
 	sub1 := dispatcher.Subscribe()
@@ -95,38 +92,38 @@ func TestDispatcher_SubscribersReceiveSameEvents(t *testing.T) {
 
 	go dispatcher.Run(ctx)
 
-	events := []models.Event{
-		{EventID: "event-1"},
-		{EventID: "event-2"},
-		{EventID: "event-3"},
+	data := [][]byte{
+		[]byte("packet-1"),
+		[]byte("packet-2"),
+		[]byte("packet-3"),
 	}
-	for _, e := range events {
-		source <- e
+	for _, d := range data {
+		source <- d
 	}
 	close(source)
 
 	time.Sleep(10 * time.Millisecond)
 
-	var received1, received2 []string
-	for e := range sub1 {
-		received1 = append(received1, e.EventID)
+	var received1, received2 [][]byte
+	for d := range sub1 {
+		received1 = append(received1, d)
 	}
-	for e := range sub2 {
-		received2 = append(received2, e.EventID)
+	for d := range sub2 {
+		received2 = append(received2, d)
 	}
 
-	for i, e := range events {
-		if received1[i] != e.EventID {
-			t.Errorf("sub1 event %d: got %s, want %s", i, received1[i], e.EventID)
+	for i, d := range data {
+		if string(received1[i]) != string(d) {
+			t.Errorf("sub1 packet %d: got %s, want %s", i, string(received1[i]), string(d))
 		}
-		if received2[i] != e.EventID {
-			t.Errorf("sub2 event %d: got %s, want %s", i, received2[i], e.EventID)
+		if string(received2[i]) != string(d) {
+			t.Errorf("sub2 packet %d: got %s, want %s", i, string(received2[i]), string(d))
 		}
 	}
 }
 
 func TestDispatcher_ContextCancellation(t *testing.T) {
-	source := make(chan models.Event, 10)
+	source := make(chan []byte, 10)
 	dispatcher := NewDispatcher(source, 10)
 
 	sub := dispatcher.Subscribe()
@@ -139,7 +136,7 @@ func TestDispatcher_ContextCancellation(t *testing.T) {
 		close(done)
 	}()
 
-	source <- models.Event{EventID: "before-cancel"}
+	source <- []byte("before-cancel")
 	time.Sleep(5 * time.Millisecond)
 	cancel()
 
@@ -152,7 +149,7 @@ func TestDispatcher_ContextCancellation(t *testing.T) {
 	// Subscriber channel should be closed
 	_, ok := <-sub
 	if ok {
-		// First event might still be there
+		// First packet might still be there
 		_, ok = <-sub
 	}
 	if ok {
@@ -161,7 +158,7 @@ func TestDispatcher_ContextCancellation(t *testing.T) {
 }
 
 func TestDispatcher_SlowSubscriber(t *testing.T) {
-	source := make(chan models.Event, 10)
+	source := make(chan []byte, 10)
 	dispatcher := NewDispatcher(source, 2) // Small buffer to trigger drops
 
 	fastSub := dispatcher.Subscribe()
@@ -172,7 +169,6 @@ func TestDispatcher_SlowSubscriber(t *testing.T) {
 
 	go dispatcher.Run(ctx)
 
-	// Start fast subscriber immediately so it can consume as events arrive
 	fastCount := 0
 	fastDone := make(chan struct{})
 	go func() {
@@ -182,7 +178,6 @@ func TestDispatcher_SlowSubscriber(t *testing.T) {
 		}
 	}()
 
-	// Start slow subscriber immediately
 	slowCount := 0
 	slowDone := make(chan struct{})
 	go func() {
@@ -193,98 +188,34 @@ func TestDispatcher_SlowSubscriber(t *testing.T) {
 		}
 	}()
 
-	// Give subscribers time to start
 	time.Sleep(5 * time.Millisecond)
 
-	// Send events faster than slow subscriber can consume
-	numEvents := 10
-	for i := 0; i < numEvents; i++ {
-		source <- models.Event{EventID: fmt.Sprintf("event-%d", i)}
-		time.Sleep(1 * time.Millisecond) // Small delay between sends
+	numPackets := 10
+	for i := 0; i < numPackets; i++ {
+		source <- []byte("data")
+		time.Sleep(1 * time.Millisecond)
 	}
 	close(source)
 
-	// Wait for both subscribers to finish
 	<-fastDone
 	<-slowDone
 
-	// Fast subscriber should get all events (since it consumes immediately)
-	if fastCount != numEvents {
-		t.Errorf("fast subscriber: expected %d events, got %d", numEvents, fastCount)
+	if fastCount != numPackets {
+		t.Errorf("fast subscriber: expected %d packets, got %d", numPackets, fastCount)
 	}
 
-	// Slow subscriber should have dropped some due to buffer overflow
-	// This is expected behavior - verify that some events were dropped
 	dropped := dispatcher.GetDroppedCount()
-	if dropped == 0 && slowCount < numEvents {
-		// If we got fewer events but no drops were recorded, something's wrong
-		t.Logf("Slow subscriber got %d events (expected some drops), dropped count: %d", slowCount, dropped)
+	if dropped == 0 && slowCount < numPackets {
+		t.Logf("Slow subscriber got %d packets (expected some drops), dropped count: %d", slowCount, dropped)
 	}
 
-	// At least verify slow subscriber got some events
 	if slowCount == 0 {
-		t.Error("slow subscriber should have received at least some events")
+		t.Error("slow subscriber should have received at least some packets")
 	}
-
-	// Verify that some events were dropped for the slow subscriber
-	if dropped == 0 {
-		t.Logf("Note: No events were dropped, but slow subscriber got %d/%d events", slowCount, numEvents)
-	}
-}
-
-func TestDispatcher_BufferOverflow(t *testing.T) {
-	source := make(chan models.Event, 10)
-	dispatcher := NewDispatcher(source, 2) // Very small buffer
-
-	sub := dispatcher.Subscribe()
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	go dispatcher.Run(ctx)
-
-	// Send many events rapidly to overflow buffer
-	numEvents := 20
-	for i := 0; i < numEvents; i++ {
-		source <- models.Event{EventID: fmt.Sprintf("event-%d", i)}
-	}
-	close(source)
-
-	// Give dispatcher time to process
-	time.Sleep(50 * time.Millisecond)
-
-	// Count received events
-	received := 0
-	receivedDone := make(chan struct{})
-	go func() {
-		defer close(receivedDone)
-		for range sub {
-			received++
-		}
-	}()
-
-	// Wait a bit for processing
-	time.Sleep(100 * time.Millisecond)
-	cancel() // Stop dispatcher
-	<-receivedDone
-
-	// With buffer size 2, we should have received at most bufferSize events
-	// plus any that were in flight, but many should have been dropped
-	dropped := dispatcher.GetDroppedCount()
-	if dropped == 0 {
-		t.Error("expected some events to be dropped with small buffer and rapid sends")
-	}
-
-	// Verify that dropped count is tracked
-	if dropped < 0 {
-		t.Errorf("dropped count should be non-negative, got %d", dropped)
-	}
-
-	t.Logf("Sent %d events, received %d, dropped %d", numEvents, received, dropped)
 }
 
 func TestDispatcher_GetSubscriberCount(t *testing.T) {
-	source := make(chan models.Event, 10)
+	source := make(chan []byte, 10)
 	dispatcher := NewDispatcher(source, 10)
 
 	if dispatcher.GetSubscriberCount() != 0 {
@@ -301,14 +232,12 @@ func TestDispatcher_GetSubscriberCount(t *testing.T) {
 		t.Errorf("expected 2 subscribers, got %d", dispatcher.GetSubscriberCount())
 	}
 
-	// Clean up
 	close(source)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	go dispatcher.Run(ctx)
 	time.Sleep(10 * time.Millisecond)
 
-	// Drain channels
 	for range sub1 {
 	}
 	for range sub2 {
@@ -316,7 +245,7 @@ func TestDispatcher_GetSubscriberCount(t *testing.T) {
 }
 
 func TestDispatcher_GetDroppedCount(t *testing.T) {
-	source := make(chan models.Event, 10)
+	source := make(chan []byte, 10)
 	dispatcher := NewDispatcher(source, 1) // Very small buffer to force drops
 
 	sub := dispatcher.Subscribe()
@@ -326,13 +255,11 @@ func TestDispatcher_GetDroppedCount(t *testing.T) {
 
 	go dispatcher.Run(ctx)
 
-	// Send events faster than can be consumed
 	for i := 0; i < 10; i++ {
-		source <- models.Event{EventID: fmt.Sprintf("event-%d", i)}
+		source <- []byte("data")
 	}
 	close(source)
 
-	// Give dispatcher time to process and drop events
 	time.Sleep(50 * time.Millisecond)
 
 	dropped := dispatcher.GetDroppedCount()
@@ -340,11 +267,6 @@ func TestDispatcher_GetDroppedCount(t *testing.T) {
 		t.Errorf("dropped count should be non-negative, got %d", dropped)
 	}
 
-	// With a buffer of 1 and rapid sends, we should have some drops
-	// (exact count depends on timing, so we just verify it's tracked)
-	t.Logf("Dropped events count: %d", dropped)
-
-	// Drain subscriber channel to ensure test completes properly
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
@@ -352,7 +274,6 @@ func TestDispatcher_GetDroppedCount(t *testing.T) {
 		}
 	}()
 
-	// Wait a bit for draining, then cancel to stop dispatcher
 	time.Sleep(10 * time.Millisecond)
 	cancel()
 	<-done

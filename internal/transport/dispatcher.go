@@ -5,25 +5,23 @@ import (
 	"log"
 	"sync"
 	"sync/atomic"
-
-	"github.com/synheart/synheart-cli/internal/models"
 )
 
-// Dispatcher copies events from one source to multiple subscribers.
+// Dispatcher copies payloads from one source to multiple subscribers.
 // When a subscriber's buffer is full, events are dropped to prevent blocking
 // the generator. Dropped events are logged and counted for monitoring.
 type Dispatcher struct {
-	source       <-chan models.Event
-	subscribers  []chan models.Event
+	source       <-chan []byte
+	subscribers  []chan []byte
 	bufferSize   int
 	mu           sync.Mutex
 	droppedTotal int64 // atomic counter for total dropped events
 }
 
-func NewDispatcher(source <-chan models.Event, bufferSize int) *Dispatcher {
+func NewDispatcher(source <-chan []byte, bufferSize int) *Dispatcher {
 	return &Dispatcher{
 		source:      source,
-		subscribers: make([]chan models.Event, 0),
+		subscribers: make([]chan []byte, 0),
 		bufferSize:  bufferSize,
 	}
 }
@@ -31,8 +29,8 @@ func NewDispatcher(source <-chan models.Event, bufferSize int) *Dispatcher {
 // Subscribe returns a channel that receives copies of all source events.
 // Each subscriber gets its own buffered channel with the configured buffer size.
 // Subscribers should be added before calling Run() to ensure they receive all events.
-func (d *Dispatcher) Subscribe() <-chan models.Event {
-	ch := make(chan models.Event, d.bufferSize)
+func (d *Dispatcher) Subscribe() <-chan []byte {
+	ch := make(chan []byte, d.bufferSize)
 	d.mu.Lock()
 	d.subscribers = append(d.subscribers, ch)
 	d.mu.Unlock()
@@ -61,16 +59,16 @@ func (d *Dispatcher) Run(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
-		case event, ok := <-d.source:
+		case data, ok := <-d.source:
 			if !ok {
 				return
 			}
-			d.dispatch(event, ctx)
+			d.dispatch(data, ctx)
 		}
 	}
 }
 
-func (d *Dispatcher) dispatch(event models.Event, ctx context.Context) {
+func (d *Dispatcher) dispatch(data []byte, ctx context.Context) {
 	d.mu.Lock()
 	subs := d.subscribers // Copy slice reference to minimize lock time
 	d.mu.Unlock()
@@ -78,7 +76,7 @@ func (d *Dispatcher) dispatch(event models.Event, ctx context.Context) {
 	dropped := 0
 	for _, sub := range subs {
 		select {
-		case sub <- event:
+		case sub <- data:
 			// Successfully sent
 		case <-ctx.Done():
 			return
@@ -91,7 +89,7 @@ func (d *Dispatcher) dispatch(event models.Event, ctx context.Context) {
 
 	// Log dropped events (only if any were dropped to avoid log spam)
 	if dropped > 0 {
-		log.Printf("Dispatcher: dropped event %s for %d subscriber(s) (buffer full)", event.EventID, dropped)
+		log.Printf("Dispatcher: dropped packet for %d subscriber(s) (buffer full)", dropped)
 	}
 }
 

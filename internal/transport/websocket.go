@@ -9,8 +9,6 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	"github.com/synheart/synheart-cli/internal/encoding"
-	"github.com/synheart/synheart-cli/internal/models"
 )
 
 var upgrader = websocket.Upgrader{
@@ -31,16 +29,14 @@ type WebSocketServer struct {
 	clients map[*client]bool
 	mu      sync.RWMutex
 	server  *http.Server
-	encoder encoding.Encoder
 }
 
 // NewWebSocketServer creates a new WebSocket server
-func NewWebSocketServer(host string, port int, encoder encoding.Encoder) *WebSocketServer {
+func NewWebSocketServer(host string, port int) *WebSocketServer {
 	return &WebSocketServer{
 		host:    host,
 		port:    port,
 		clients: make(map[*client]bool),
-		encoder: encoder,
 	}
 }
 
@@ -83,9 +79,6 @@ func (s *WebSocketServer) writePump(c *client) {
 
 	for msg := range c.send {
 		msgType := websocket.TextMessage
-		if s.encoder.ContentType() == "application/x-protobuf" {
-			msgType = websocket.BinaryMessage
-		}
 
 		// set a deadline If the network is too slow this will time out
 		// and clean up the connection instead of hanging forever
@@ -141,15 +134,10 @@ func (s *WebSocketServer) handleWebSocket(w http.ResponseWriter, r *http.Request
 	}
 }
 
-// Broadcast sends an event to all connected clients
-func (s *WebSocketServer) Broadcast(event models.Event) error {
+// Broadcast sends data to all connected clients
+func (s *WebSocketServer) Broadcast(data []byte) error {
 	if s.GetClientCount() == 0 {
 		return nil
-	}
-
-	data, err := s.encoder.Encode(event)
-	if err != nil {
-		return fmt.Errorf("failed to encode event: %w", err)
 	}
 
 	s.mu.RLock()
@@ -166,17 +154,17 @@ func (s *WebSocketServer) Broadcast(event models.Event) error {
 	return nil
 }
 
-// BroadcastFromChannel reads events from a channel and broadcasts them
-func (s *WebSocketServer) BroadcastFromChannel(ctx context.Context, events <-chan models.Event) error {
+// BroadcastFromChannel reads data from a channel and broadcasts it
+func (s *WebSocketServer) BroadcastFromChannel(ctx context.Context, dataStream <-chan []byte) error {
 	for {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case event, ok := <-events:
+		case data, ok := <-dataStream:
 			if !ok {
 				return nil // Channel closed
 			}
-			if err := s.Broadcast(event); err != nil {
+			if err := s.Broadcast(data); err != nil {
 				log.Printf("Broadcast error: %v", err)
 			}
 		}

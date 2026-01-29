@@ -8,6 +8,7 @@ LDFLAGS := -X github.com/synheart/synheart-cli/internal/cli.Version=$(VERSION) -
 build:
 	go build -ldflags "$(LDFLAGS)" -o bin/synheart cmd/synheart/main.go
 
+
 install:
 	go install -ldflags "$(LDFLAGS)" ./cmd/synheart
 	@# Optional: install shell completion scripts.

@@ -7,13 +7,10 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/synheart/synheart-cli/internal/encoding"
-	"github.com/synheart/synheart-cli/internal/models"
 )
 
 func TestSSEServer_Broadcast(t *testing.T) {
-	server := NewSSEServer("127.0.0.1", 19876, encoding.NewJSONEncoder())
+	server := NewSSEServer("127.0.0.1", 19876)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -29,12 +26,7 @@ func TestSSEServer_Broadcast(t *testing.T) {
 
 	go func() {
 		time.Sleep(200 * time.Millisecond)
-		event := models.Event{
-			SchemaVersion: "hsi.input.v1",
-			EventID:       "test-1",
-			Signal:        models.Signal{Name: "test.signal", Value: 42.0},
-		}
-		server.Broadcast(event)
+		server.Broadcast([]byte(`{"test":"data"}`))
 	}()
 
 	resp, err := client.Do(req)
@@ -50,14 +42,14 @@ func TestSSEServer_Broadcast(t *testing.T) {
 
 		buf := make([]byte, 1024)
 		n, _ := resp.Body.Read(buf)
-		if n > 0 && !strings.Contains(string(buf[:n]), "test.signal") {
+		if n > 0 && !strings.Contains(string(buf[:n]), "data") {
 			t.Errorf("expected event data, got: %s", string(buf[:n]))
 		}
 	}
 }
 
 func TestSSEServer_ClientCount(t *testing.T) {
-	server := NewSSEServer("127.0.0.1", 19877, encoding.NewJSONEncoder())
+	server := NewSSEServer("127.0.0.1", 19877)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -91,14 +83,14 @@ func TestSSEServer_ClientCount(t *testing.T) {
 }
 
 func TestSSEServer_Address(t *testing.T) {
-	server := NewSSEServer("127.0.0.1", 8080, encoding.NewJSONEncoder())
+	server := NewSSEServer("127.0.0.1", 8080)
 	addr := server.GetAddress()
 	if addr != "http://127.0.0.1:8080/hsi/sse" {
 		t.Errorf("wrong address: %s", addr)
 	}
 }
 func TestSSEServer_ShutdownWithClients(t *testing.T) {
-	server := NewSSEServer("127.0.0.1", 19878, encoding.NewJSONEncoder())
+	server := NewSSEServer("127.0.0.1", 19878)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -140,14 +132,14 @@ func TestSSEServer_ShutdownWithClients(t *testing.T) {
 }
 
 func TestSSEServer_PortConflict(t *testing.T) {
-	server1 := NewSSEServer("127.0.0.1", 19879, encoding.NewJSONEncoder())
+	server1 := NewSSEServer("127.0.0.1", 19879)
 	ctx1, cancel1 := context.WithCancel(context.Background())
 	defer cancel1()
 
 	go server1.Start(ctx1)
 	time.Sleep(100 * time.Millisecond)
 
-	server2 := NewSSEServer("127.0.0.1", 19879, encoding.NewJSONEncoder())
+	server2 := NewSSEServer("127.0.0.1", 19879)
 	ctx2, cancel2 := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel2()
 

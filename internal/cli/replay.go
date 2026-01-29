@@ -10,19 +10,16 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
-	"github.com/synheart/synheart-cli/internal/encoding"
-	"github.com/synheart/synheart-cli/internal/models"
 	"github.com/synheart/synheart-cli/internal/recorder"
 	"github.com/synheart/synheart-cli/internal/transport"
 )
 
 var (
-	replayIn     string
-	replaySpeed  float64
-	replayLoop   bool
-	replayHost   string
-	replayPort   int
-	replayFormat string
+	replayIn    string
+	replaySpeed float64
+	replayLoop  bool
+	replayHost  string
+	replayPort  int
 )
 
 var replayCmd = &cobra.Command{
@@ -42,7 +39,6 @@ func init() {
 	replayCmd.Flags().BoolVar(&replayLoop, "loop", false, "Loop playback continuously")
 	replayCmd.Flags().StringVar(&replayHost, "host", "127.0.0.1", "Host to bind to")
 	replayCmd.Flags().IntVar(&replayPort, "port", 8787, "Port to listen on")
-	replayCmd.Flags().StringVar(&replayFormat, "format", "json", "Output format: json|protobuf")
 	replayCmd.MarkFlagRequired("in")
 }
 
@@ -56,17 +52,11 @@ func runReplay(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to read recording: %w", err)
 	}
 
-	firstEvent, err := rep.GetFirstEvent()
-	if err != nil {
-		return fmt.Errorf("failed to read first event: %w", err)
-	}
+	// Create record channel
+	records := make(chan []byte, 100)
 
-	// Create event channel
-	events := make(chan models.Event, 100)
-
-	// Create encoder and WebSocket server
-	enc := encoding.NewEncoder(encoding.Format(replayFormat))
-	wsServer := transport.NewWebSocketServer(replayHost, replayPort, enc)
+	// Create WebSocket server
+	wsServer := transport.NewWebSocketServer(replayHost, replayPort)
 
 	// Setup context with cancellation
 	ctx, cancel := context.WithCancel(context.Background())
@@ -92,18 +82,15 @@ func runReplay(cmd *cobra.Command, args []string) error {
 	// Give server time to start
 	time.Sleep(100 * time.Millisecond)
 
-	fmt.Printf("▶️  Replay Session Started\n\n")
 	fmt.Printf("File:         %s\n", replayIn)
-	fmt.Printf("Events:       %d\n", count)
-	fmt.Printf("Scenario:     %s\n", firstEvent.Session.Scenario)
+	fmt.Printf("Records:      %d\n", count)
 	fmt.Printf("Speed:        %.1fx\n", replaySpeed)
 	fmt.Printf("Loop:         %v\n", replayLoop)
-	fmt.Printf("Format:       %s\n", replayFormat)
 	fmt.Printf("WebSocket:    %s\n\n", wsServer.GetAddress())
 
 	// Start broadcasting
 	go func() {
-		if err := wsServer.BroadcastFromChannel(ctx, events); err != nil && err != context.Canceled {
+		if err := wsServer.BroadcastFromChannel(ctx, records); err != nil && err != context.Canceled {
 			log.Printf("Broadcast error: %v", err)
 		}
 	}()
@@ -112,11 +99,11 @@ func runReplay(cmd *cobra.Command, args []string) error {
 	fmt.Println("\nReplaying events...")
 
 	// Start replay
-	if err := rep.Replay(ctx, events); err != nil && err != context.Canceled {
+	if err := rep.Replay(ctx, records); err != nil && err != context.Canceled {
 		return fmt.Errorf("replay error: %w", err)
 	}
 
-	close(events)
+	close(records)
 
 	fmt.Println("\nReplay complete")
 	return nil

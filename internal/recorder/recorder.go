@@ -3,12 +3,9 @@ package recorder
 import (
 	"bufio"
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"sync"
-
-	"github.com/synheart/synheart-cli/internal/models"
 )
 
 // Recorder writes events to an NDJSON file
@@ -31,15 +28,10 @@ func NewRecorder(filename string) (*Recorder, error) {
 	}, nil
 }
 
-// Record writes a single event to the file
-func (r *Recorder) Record(event models.Event) error {
+// Record writes a raw byte payload to the file followed by a newline
+func (r *Recorder) Record(data []byte) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-
-	data, err := json.Marshal(event)
-	if err != nil {
-		return fmt.Errorf("failed to marshal event: %w", err)
-	}
 
 	if _, err := r.writer.Write(data); err != nil {
 		return fmt.Errorf("failed to write event: %w", err)
@@ -52,21 +44,21 @@ func (r *Recorder) Record(event models.Event) error {
 	return nil
 }
 
-// RecordFromChannel reads events from a channel and records them
-func (r *Recorder) RecordFromChannel(ctx context.Context, events <-chan models.Event, onEvent func()) error {
+// RecordFromChannel reads data from a channel and records it
+func (r *Recorder) RecordFromChannel(ctx context.Context, dataStream <-chan []byte, onEntry func()) error {
 	for {
 		select {
 		case <-ctx.Done():
 			return r.Close()
-		case event, ok := <-events:
+		case data, ok := <-dataStream:
 			if !ok {
 				return r.Close() // Channel closed
 			}
-			if err := r.Record(event); err != nil {
+			if err := r.Record(data); err != nil {
 				return err
 			}
-			if onEvent != nil { // <--- The Guard Logic
-				onEvent()
+			if onEntry != nil {
+				onEntry()
 			}
 		}
 	}
