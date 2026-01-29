@@ -1,6 +1,6 @@
 .PHONY: build install test clean proto
 
-VERSION ?= 0.0.1
+VERSION ?= 0.1.0
 COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo dev)
 
 LDFLAGS := -X github.com/synheart/synheart-cli/internal/cli.Version=$(VERSION) -X github.com/synheart/synheart-cli/internal/cli.Commit=$(COMMIT)
